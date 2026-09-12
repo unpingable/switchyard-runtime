@@ -156,6 +156,7 @@ def test_completed_is_not_accepted_and_duplicate_does_not_regenerate(tmp_path):
 
 
 @pytest.mark.parametrize("status,state", [
+    (400, "PROVIDER_REFUSED"),
     (401, "AUTHENTICATION_FAILED"), (403, "AUTHENTICATION_FAILED"),
     (402, "QUOTA_EXHAUSTED"), (429, "RATE_OR_CAPACITY_REFUSED"),
     (408, "PROVIDER_TIMEOUT_OUTCOME_UNKNOWN"), (504, "PROVIDER_TIMEOUT_OUTCOME_UNKNOWN"),
@@ -171,6 +172,117 @@ def test_typed_http_failures_do_not_retain_body(tmp_path, status, state):
     assert result["worker_output"] is None
     persisted = (tmp_path / "direct.sqlite").read_bytes()
     assert b"should never persist" not in persisted
+
+
+def test_http_400_retains_only_bounded_provider_error_identifiers(tmp_path):
+    fixture = FixtureTransport()
+    fixture.calls = []
+    fixture.status = 400
+    fixture.response = {
+        "error": {
+            "code": "invalid_request.400",
+            "type": "legacy_type",
+            "message": "fixture-private diagnostic and request echo",
+            "metadata": {
+                "error_type": "response_format/unsupported",
+                "provider_code": "upstream.invalid_schema",
+                "provider": "fixture-private-provider",
+            },
+        },
+        "request": "fixture-private-request",
+    }
+    request, admitted, binding = v2_inputs()
+    state = tmp_path / "direct.sqlite"
+    with RunStore(state) as store:
+        result = run(request, admitted, binding, store, transport=fixture,
+                     credential_source=lambda _: "fixture-secret")
+    assert result["state"] == "PROVIDER_REFUSED"
+    assert result["http_status"] == 400
+    assert result["provider_error_code"] == "invalid_request.400"
+    assert result["provider_error_type"] == "response_format/unsupported"
+    assert result["upstream_provider_error_code"] == "upstream.invalid_schema"
+    assert result["worker_output"] is None
+    assert len(fixture.calls) == 1
+    serialized = json.dumps(result)
+    persisted = state.read_bytes()
+    for private in (b"fixture-private diagnostic", b"fixture-private-provider",
+                    b"fixture-private-request"):
+        assert private not in serialized.encode()
+        assert private not in persisted
+
+
+@pytest.mark.parametrize("error", [
+    b"not-json",
+    b"[]",
+    b'{"error":"not-an-object"}',
+    b'{"error":{"code":true,"type":false,"metadata":{"error_type":true,"provider_code":false}}}',
+    json.dumps({"error": {"code": "contains spaces", "type": "x" * 129}}).encode(),
+    json.dumps({"error": {"code": ["not", "scalar"], "type": {"nested": 1}}}).encode(),
+    json.dumps({"error": {"metadata": {"error_type": ["nested"],
+                                         "provider_code": "contains spaces"}}}).encode(),
+])
+def test_http_400_omits_malformed_or_unbounded_provider_diagnostics(tmp_path, error):
+    class Refused:
+        calls = 0
+
+        def __call__(self, **kwargs):
+            self.calls += 1
+            return 400, error
+
+    fixture = Refused()
+    result = execute(tmp_path, transport=fixture)
+    assert result["state"] == "PROVIDER_REFUSED"
+    assert result["http_status"] == 400
+    assert "provider_error_code" not in result
+    assert "provider_error_type" not in result
+    assert "upstream_provider_error_code" not in result
+    assert fixture.calls == 1
+
+
+@pytest.mark.parametrize("secret", [
+    "fixture-secret",
+    "prefix.fixture-secret.suffix",
+    "sk-or-v1-not-a-real-key",
+    "pk_test_not-a-real-key",
+])
+def test_http_400_never_retains_credential_or_secret_shaped_identifier(tmp_path, secret):
+    class Refused:
+        calls = 0
+
+        def __call__(self, **kwargs):
+            self.calls += 1
+            return 400, _canonical({"error": {
+                "code": secret,
+                "type": secret,
+                "metadata": {"error_type": secret, "provider_code": secret},
+            }})
+
+    fixture = Refused()
+    result = execute(tmp_path, transport=fixture,
+                     credential_source=lambda _: "fixture-secret")
+    assert result["state"] == "PROVIDER_REFUSED"
+    assert "provider_error_code" not in result
+    assert "provider_error_type" not in result
+    assert "upstream_provider_error_code" not in result
+    assert secret.encode() not in (tmp_path / "direct.sqlite").read_bytes()
+    assert fixture.calls == 1
+
+
+def test_http_400_numeric_code_is_normalized_without_changing_accounting(tmp_path):
+    fixture = FixtureTransport()
+    fixture.calls = []
+    fixture.status = 400
+    fixture.response = {"error": {"code": 400, "type": "invalid_request"}}
+    request, admitted, binding = v2_inputs()
+    with RunStore(tmp_path / "direct.sqlite") as store:
+        result = run(request, admitted, binding, store, transport=fixture,
+                     credential_source=lambda _: "fixture-secret")
+    assert result["provider_error_code"] == "400"
+    assert result["provider_error_type"] == "invalid_request"
+    assert result["completion_state"] == "NOT_COMPLETED"
+    assert result["contact_state"] == "RESPONSE_OBSERVED"
+    assert result["spend_reservation"]["state"] == "RESERVED"
+    assert len(fixture.calls) == 1
 
 
 def test_missing_credential_and_precontact_cancel_never_contact(tmp_path):

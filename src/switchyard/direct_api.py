@@ -11,6 +11,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import stat
 import subprocess
@@ -530,6 +531,39 @@ def _number(value: object) -> int | float | None:
     return value
 
 
+_PROVIDER_DIAGNOSTIC_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}")
+
+
+def _bounded_provider_error_metadata(raw: bytes, credential: str) -> dict[str, str]:
+    """Extract only non-prose provider error identifiers from a bounded body."""
+    try:
+        response = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(response, dict) or not isinstance(response.get("error"), dict):
+        return {}
+    error = response["error"]
+    metadata = error.get("metadata") if isinstance(error.get("metadata"), dict) else {}
+    retained = {}
+    candidates = (
+        (error.get("code"), "provider_error_code"),
+        (metadata.get("provider_code"), "upstream_provider_error_code"),
+        # OpenRouter's documented metadata field takes precedence over the
+        # legacy top-level type when both are present.
+        (metadata.get("error_type", error.get("type")), "provider_error_type"),
+    )
+    for value, target in candidates:
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            continue
+        token = str(value)
+        lowered = token.lower()
+        secret_shaped = lowered.startswith(("sk-", "sk_", "pk-", "pk_"))
+        if (_PROVIDER_DIAGNOSTIC_TOKEN.fullmatch(token) is not None
+                and credential not in token and not secret_shaped):
+            retained[target] = token
+    return retained
+
+
 def run(request: dict, admitted_input: bytes, owner_binding: dict, store: RunStore, *,
         credential_source: Callable[[str], str | None] = os.environ.get,
         transport: Transport = http_transport,
@@ -588,7 +622,8 @@ def run(request: dict, admitted_input: bytes, owner_binding: dict, store: RunSto
             return record
         if status != 200:
             record.update(state=_status_state(status), contact_state="RESPONSE_OBSERVED",
-                          completion_state="NOT_COMPLETED")
+                          completion_state="NOT_COMPLETED",
+                          **_bounded_provider_error_metadata(raw, credential))
             return record
         try:
             response = json.loads(raw)

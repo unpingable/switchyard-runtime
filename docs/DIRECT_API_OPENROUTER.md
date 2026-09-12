@@ -133,7 +133,19 @@ reported model and upstream provider remain response evidence.
 
 HTTP 401/403, 402, 429, 503, 408/504, and other non-200 responses retain typed
 authentication, quota, rate/capacity, provider-capacity, timeout-uncertain, and
-generic refusal states. Response bodies and exception text are not persisted.
+generic refusal states. When a bounded JSON error envelope supplies a scalar
+`error.code`, `error.type`, `error.metadata.error_type`, or
+`error.metadata.provider_code`, the adapter retains only values matching its
+1–128 character diagnostic-token grammar. The fields are
+`provider_error_code`, `provider_error_type`, and
+`upstream_provider_error_code`; documented `metadata.error_type` takes
+precedence over the legacy top-level `error.type`. Numeric codes are normalized
+to strings. A value containing the active credential or beginning with a
+recognized secret prefix is omitted. These optional identifiers improve
+refusal inspection without changing its disposition.
+Messages, raw response bodies, headers, request echoes, nested metadata, and
+exception text are not persisted; malformed, prose-like, or overlong diagnostic
+values are omitted.
 The credential value is passed only to the one transport call and is never
 placed in request, owner binding, result, or SQLite state.
 
