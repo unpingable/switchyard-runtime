@@ -68,6 +68,25 @@ def v2_inputs():
     return request, admitted, binding
 
 
+def v3_inputs():
+    request, admitted, binding = v2_inputs()
+    request["schema"] = "switchyard.direct-api-request/v3"
+    request["response_format"] = {"type": "json_schema", "json_schema": {
+        "name": "bounded_output", "strict": True,
+        "schema": {"type": "object", "additionalProperties": False,
+                   "properties": {"result": {"type": "string"}}, "required": ["result"]},
+    }}
+    request["request_digest"] = digest(REQUEST_DOMAIN + _canonical(
+        {key: value for key, value in request.items() if key != "request_digest"}
+    ))
+    binding["schema"] = "switchyard.direct-api-owner-binding/v3"
+    binding["request_digest"] = request["request_digest"]
+    binding["binding_digest"] = digest(BINDING_DOMAIN + _canonical(
+        {key: value for key, value in binding.items() if key != "binding_digest"}
+    ))
+    return request, admitted, binding
+
+
 class FixtureTransport:
     calls = []
     status = 200
@@ -341,6 +360,61 @@ def test_v2_enrolled_owner_and_token_limits_are_retained_and_sent(tmp_path):
         "allow_fallbacks": False, "require_parameters": True,
         "max_price": {"prompt": 1, "completion": 2, "request": 0},
     }
+    assert "response_format" not in json.loads(fixture.calls[0]["body"])
+
+
+def test_v3_forwards_exact_owner_bound_strict_response_format(tmp_path):
+    request, admitted, binding = v3_inputs()
+    fixture = FixtureTransport(); fixture.calls = []
+    run(request, admitted, binding, RunStore(tmp_path / "direct.sqlite"),
+        transport=fixture, credential_source=lambda _: "fixture-secret")
+    body = json.loads(fixture.calls[0]["body"])
+    assert body["response_format"] == request["response_format"]
+    assert body["provider"]["require_parameters"] is True
+    assert body["provider"]["allow_fallbacks"] is False
+
+
+def test_v3_response_format_substitution_or_unsupported_shape_refuses_before_contact(tmp_path):
+    request, admitted, binding = v3_inputs()
+    fixture = FixtureTransport(); fixture.calls = []
+    changed = copy.deepcopy(request)
+    changed["response_format"]["json_schema"]["name"] = "substituted"
+    with pytest.raises(AdapterProtocolError, match="digest"):
+        run(changed, admitted, binding, RunStore(tmp_path / "changed.sqlite"),
+            transport=fixture, credential_source=lambda _: "fixture-secret")
+    malformed = copy.deepcopy(request)
+    malformed["response_format"] = {"type": "json_object"}
+    malformed["request_digest"] = digest(REQUEST_DOMAIN + _canonical(
+        {key: value for key, value in malformed.items() if key != "request_digest"}
+    ))
+    binding2 = copy.deepcopy(binding); binding2["request_digest"] = malformed["request_digest"]
+    binding2["binding_digest"] = digest(BINDING_DOMAIN + _canonical(
+        {key: value for key, value in binding2.items() if key != "binding_digest"}
+    ))
+    with pytest.raises(AdapterProtocolError, match="response format"):
+        run(malformed, admitted, binding2, RunStore(tmp_path / "malformed.sqlite"),
+            transport=fixture, credential_source=lambda _: "fixture-secret")
+    assert fixture.calls == []
+
+
+def test_v3_response_format_prompt_overbound_refuses_before_transport_and_claim(tmp_path):
+    request, admitted, binding = v3_inputs()
+    request["response_format"]["json_schema"]["schema"]["description"] = "x" * 5000
+    request["request_digest"] = digest(REQUEST_DOMAIN + _canonical(
+        {key: value for key, value in request.items() if key != "request_digest"}
+    ))
+    binding["request_digest"] = request["request_digest"]
+    binding["binding_digest"] = digest(BINDING_DOMAIN + _canonical(
+        {key: value for key, value in binding.items() if key != "binding_digest"}
+    ))
+    fixture = FixtureTransport(); fixture.calls = []
+    state = tmp_path / "direct.sqlite"
+    store = RunStore(state)
+    with pytest.raises(AdapterProtocolError, match="prompt limit"):
+        run(request, admitted, binding, store, transport=fixture,
+            credential_source=lambda _: "fixture-secret")
+    assert fixture.calls == []
+    assert store.db.execute("SELECT count(*) FROM direct_api_runs").fetchone()[0] == 0
 
 
 def test_v2_token_overage_is_not_acceptable_completion(tmp_path):

@@ -37,6 +37,7 @@ REQUEST_V2_FIELDS = REQUEST_FIELDS | frozenset({
     "maximum_concurrent_requests", "spend_budget_id", "spend_budget_micros",
     "reserved_spend_micros", "prompt_token_price_micros", "completion_token_price_micros",
 })
+REQUEST_V3_FIELDS = REQUEST_V2_FIELDS | frozenset({"response_format"})
 BINDING_FIELDS = frozenset({
     "schema", "binding_digest", "request_digest", "request_id",
     "work_attempt_id", "dispatch_occurrence_id", "admitted_input_sha256",
@@ -46,6 +47,7 @@ BINDING_FIELDS = frozenset({
 BINDING_V2_FIELDS = BINDING_FIELDS | frozenset({
     "owner_id", "owner_profile_id", "proposal_request_id", "proposal_request_digest",
 })
+BINDING_V3_FIELDS = BINDING_V2_FIELDS
 
 
 def digest(raw: bytes) -> str:
@@ -66,12 +68,38 @@ def _require_id(name: str, value: object) -> None:
         raise AdapterProtocolError(f"invalid {name}")
 
 
+def _bounded_json(value: object, *, depth: int = 0, budget: list[int] | None = None) -> None:
+    """Validate a small deterministic JSON value without interpreting its schema."""
+    budget = [4096] if budget is None else budget
+    budget[0] -= 1
+    if budget[0] < 0 or depth > 32:
+        raise AdapterProtocolError("v3 response JSON Schema exceeds structural bound")
+    if value is None or isinstance(value, bool) or (isinstance(value, int) and not isinstance(value, bool)):
+        return
+    if isinstance(value, str):
+        if len(value.encode("utf-8")) > 16 * 1024:
+            raise AdapterProtocolError("v3 response JSON Schema string exceeds bound")
+        return
+    if isinstance(value, list):
+        for item in value:
+            _bounded_json(item, depth=depth + 1, budget=budget)
+        return
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        for key, item in value.items():
+            _bounded_json(key, depth=depth + 1, budget=budget)
+            _bounded_json(item, depth=depth + 1, budget=budget)
+        return
+    raise AdapterProtocolError("v3 response JSON Schema contains an unsupported JSON value")
+
+
 def validate(request: dict, admitted_input: bytes, owner_binding: dict) -> None:
     schema = request.get("schema")
-    is_v2 = schema == "switchyard.direct-api-request/v2"
-    expected_request_fields = REQUEST_V2_FIELDS if is_v2 else REQUEST_FIELDS
+    is_enrolled = schema in {"switchyard.direct-api-request/v2", "switchyard.direct-api-request/v3"}
+    expected_request_fields = (REQUEST_V3_FIELDS if schema == "switchyard.direct-api-request/v3"
+                               else REQUEST_V2_FIELDS if is_enrolled else REQUEST_FIELDS)
     if frozenset(request) != expected_request_fields or schema not in {
         "switchyard.direct-api-request/v1", "switchyard.direct-api-request/v2",
+        "switchyard.direct-api-request/v3",
     }:
         raise AdapterProtocolError("closed direct API request fields do not match")
     for field in ("request_id", "work_attempt_id", "dispatch_occurrence_id", "provider_id",
@@ -85,7 +113,7 @@ def validate(request: dict, admitted_input: bytes, owner_binding: dict) -> None:
         raise AdapterProtocolError("admitted input differs from owner-bound bytes")
     if (request["provider_id"] != "openrouter" or request["adapter_protocol"] != PROTOCOL
             or request["endpoint"] != ENDPOINT
-            or request["credential_source"] not in ({"environment:OPENROUTER_API_KEY"} if not is_v2 else {"environment:OPENROUTER_API_KEY", "maude-dedicated-config:OPENROUTER_API_KEY"})
+            or request["credential_source"] not in ({"environment:OPENROUTER_API_KEY"} if not is_enrolled else {"environment:OPENROUTER_API_KEY", "maude-dedicated-config:OPENROUTER_API_KEY"})
             or request["internal_provider_retry_count"] != 0
             or request["semantic_retry"] is not False
             or request["allow_provider_model_fallback"] is not False
@@ -108,7 +136,7 @@ def validate(request: dict, admitted_input: bytes, owner_binding: dict) -> None:
     if request["request_digest"] != digest(REQUEST_DOMAIN + _canonical(basis)):
         raise AdapterProtocolError("direct API request digest mismatch")
 
-    if is_v2:
+    if is_enrolled:
         for field in ("maximum_prompt_tokens", "maximum_completion_tokens", "maximum_total_tokens"):
             value = request.get(field)
             if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 2_000_000:
@@ -132,10 +160,30 @@ def validate(request: dict, admitted_input: bytes, owner_binding: dict) -> None:
                                 + request["maximum_completion_tokens"] * request["completion_token_price_micros"])
         if request["reserved_spend_micros"] != required_reservation:
             raise AdapterProtocolError("reserved spend is not the fixed-price token envelope")
+    if schema == "switchyard.direct-api-request/v3":
+        response_format = request["response_format"]
+        _bounded_json(response_format)
+        if (not isinstance(response_format, dict)
+                or frozenset(response_format) != {"type", "json_schema"}
+                or response_format.get("type") != "json_schema"):
+            raise AdapterProtocolError("v3 response format must be a closed JSON Schema request")
+        specification = response_format.get("json_schema")
+        if (not isinstance(specification, dict)
+                or frozenset(specification) != {"name", "strict", "schema"}
+                or not isinstance(specification.get("name"), str)
+                or not specification["name"] or len(specification["name"].encode()) > 128
+                or specification.get("strict") is not True
+                or not isinstance(specification.get("schema"), dict)
+                or len(_canonical(response_format)) > 64 * 1024):
+            raise AdapterProtocolError("v3 response JSON Schema is invalid or over bound")
+        if len(admitted_input) + len(_canonical(response_format)) + 512 > request["maximum_prompt_tokens"]:
+            raise AdapterProtocolError("v3 admitted input and response format exceed conservative prompt limit")
 
     binding_schema = owner_binding.get("schema")
-    expected_binding_fields = BINDING_V2_FIELDS if is_v2 else BINDING_FIELDS
-    expected_binding_schema = "switchyard.direct-api-owner-binding/v2" if is_v2 else "switchyard.direct-api-owner-binding/v1"
+    expected_binding_fields = BINDING_V3_FIELDS if schema == "switchyard.direct-api-request/v3" else BINDING_V2_FIELDS if is_enrolled else BINDING_FIELDS
+    expected_binding_schema = ("switchyard.direct-api-owner-binding/v3" if schema == "switchyard.direct-api-request/v3"
+                               else "switchyard.direct-api-owner-binding/v2" if is_enrolled
+                               else "switchyard.direct-api-owner-binding/v1")
     if frozenset(owner_binding) != expected_binding_fields or binding_schema != expected_binding_schema:
         raise AdapterProtocolError("closed owner binding fields do not match")
     projected = {key: request[key] for key in BINDING_FIELDS - {"schema", "binding_digest"}}
@@ -144,7 +192,7 @@ def validate(request: dict, admitted_input: bytes, owner_binding: dict) -> None:
     binding_basis = {key: value for key, value in owner_binding.items() if key != "binding_digest"}
     if owner_binding["binding_digest"] != digest(BINDING_DOMAIN + _canonical(binding_basis)):
         raise AdapterProtocolError("owner binding digest mismatch")
-    if is_v2:
+    if is_enrolled:
         for field in ("owner_id", "owner_profile_id", "proposal_request_id"):
             _require_id(field, owner_binding.get(field))
         if not isinstance(owner_binding.get("proposal_request_digest"), str) or DIGEST.fullmatch(owner_binding["proposal_request_digest"]) is None:
@@ -226,7 +274,7 @@ class RunStore:
                 "started_at_unix_ms": time.time_ns() // 1_000_000,
                 "operator_note": "claim precedes contact; duplicate dispatches inspect retained state and never regenerate",
             }
-            if request["schema"] == "switchyard.direct-api-request/v2":
+            if request["schema"] in {"switchyard.direct-api-request/v2", "switchyard.direct-api-request/v3"}:
                 reservation_scope = digest(_canonical({"account_id": request["account_id"], "budget_id": request["spend_budget_id"], "owner_id": owner_binding["owner_id"]}))
                 ledger_config = _canonical({key: request[key] for key in (
                     "maximum_concurrent_requests", "spend_budget_micros",
@@ -268,7 +316,7 @@ class RunStore:
                     "state": "RESERVED",
                 }
             self.db.execute("INSERT INTO direct_api_runs VALUES (?,?,?,?,?)", (key, *exact, _canonical(record)))
-            if request["schema"] == "switchyard.direct-api-request/v2":
+            if request["schema"] in {"switchyard.direct-api-request/v2", "switchyard.direct-api-request/v3"}:
                 self.db.execute("INSERT INTO direct_api_reservations VALUES (?,?,?,1)", (key, reservation_scope, request["reserved_spend_micros"]))
             self.db.commit()
             return record, True
@@ -356,13 +404,15 @@ def run(request: dict, admitted_input: bytes, owner_binding: dict, store: RunSto
         "provider": {"allow_fallbacks": False},
         "stream": False,
     })
-    if request["schema"] == "switchyard.direct-api-request/v2":
+    if request["schema"] in {"switchyard.direct-api-request/v2", "switchyard.direct-api-request/v3"}:
         body = _canonical({**json.loads(body), "max_tokens": request["maximum_completion_tokens"], "provider": {
             "allow_fallbacks": False, "require_parameters": True,
             "max_price": {"prompt": request["prompt_token_price_micros"],
                           "completion": request["completion_token_price_micros"],
                           "request": 0},
         }})
+    if request["schema"] == "switchyard.direct-api-request/v3":
+        body = _canonical({**json.loads(body), "response_format": request["response_format"]})
     record["contact_state"] = "CONTACT_STARTED_OUTCOME_UNKNOWN"
     store.update(record)
     try:
@@ -417,7 +467,7 @@ def run(request: dict, admitted_input: bytes, owner_binding: dict, store: RunSto
             observed = {name: _number(usage.get(name)) for name in ("prompt_tokens", "completion_tokens", "total_tokens")}
             if all(value is not None for value in observed.values()):
                 record.update(usage=observed, usage_state="OBSERVED_RESPONSE_ATTRIBUTED")
-                if request["schema"] == "switchyard.direct-api-request/v2" and (
+                if request["schema"] in {"switchyard.direct-api-request/v2", "switchyard.direct-api-request/v3"} and (
                     observed["prompt_tokens"] > request["maximum_prompt_tokens"]
                     or observed["completion_tokens"] > request["maximum_completion_tokens"]
                     or observed["total_tokens"] > request["maximum_total_tokens"]

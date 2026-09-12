@@ -28,6 +28,13 @@ Tests use deterministic local transports, not billable provider calls. See
 records, enrollment, limits, cancellation and inspection. Installing this package
 does not enroll a caller or provision a provider account.
 
+The source supports retained v1 requests, enrolled budget-bounded v2 requests,
+and additive v3 requests with a caller-bound strict JSON response schema.
+Structured output does not replace the caller's validation or human review.
+The v3 repair is locally tested; a successful live Maude authoring walkthrough
+is still pending. Install the source revision selected by your caller's guide,
+not an unrelated Switchyard distribution with the same import name.
+
 ## Trust and limits
 
 The caller admits the exact input, model, account and budget. The local SQLite

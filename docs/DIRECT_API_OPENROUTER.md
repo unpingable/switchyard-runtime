@@ -1,6 +1,9 @@
 # Bounded direct OpenRouter transport
 
-Status: **implemented and deterministically fixture-tested; not live-qualified**.
+Status: **implemented and deterministically fixture-tested**. One bounded live
+v2 response was observed; Maude refused its Markdown-fenced JSON. That establishes
+provider contact, not a successful authoring walkthrough. V3 structured output
+has not yet been live-qualified.
 This module adds one explicit API acquisition route. It does not replace the
 Codex App Server adapter, admit work, authorize effects, evaluate model output,
 or establish provider availability.
@@ -21,7 +24,7 @@ request. Its closed request and owner-binding records identify:
   `LOCAL_AGENT_COMPUTE_SCHEDULING_ONLY`.
 
 The original `direct-api-request/v1` remains inspectable for retained v1
-occurrences. New enrolled callers use `direct-api-request/v2` with closed
+occurrences. Enrolled callers use `direct-api-request/v2` with closed
 maximum prompt, completion, and total-token values. V2 sends the completion
 ceiling as OpenRouter's `max_tokens`, retains the three limits and enrolled
 owner/profile/proposal identities, and treats observed token overage as
@@ -56,6 +59,26 @@ For v2, the outbound OpenRouter `provider` object also sets
 price envelope; local arithmetic is a reservation control, not evidence of
 external billing. The dedicated provider-key cap remains the final spend
 boundary.
+
+### Structured responses: additive v3
+
+`direct-api-request/v3` and `direct-api-owner-binding/v3` retain the enrolled
+limits and add caller-issued `response_format`. Its strict JSON Schema is
+covered by the exact request digest and forwarded unchanged. It is bounded to
+64 KiB, with depth, node-count and string-length checks before contact. V1 and
+V2 do not acquire a new response format implicitly.
+
+The conservative prompt check includes admitted input bytes, canonical response
+format bytes and the 512-token wrapper allowance. A format that would exceed
+the prompt ceiling is refused before the dispatch claim or provider contact.
+The fixed token-price reservation is not raised to accommodate a schema.
+
+This is a transport constraint, not semantic validation. Maude supplies its
+closed proposal envelope and allowed operation shapes, then still validates
+the actual response, exact base and scope, and semantic diff. Unsupported
+provider parameters or malformed output refuse; no automatic route switch,
+Markdown-fence removal, retry or plan acceptance follows. Provider-side schema
+support remains an external dependency and must be checked for a live model.
 
 The caller owns the authenticity and authority of the owner-binding record.
 Switchyard validates its closed fields, digest, and exact projection; it does

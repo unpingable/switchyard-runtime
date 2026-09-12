@@ -1,7 +1,7 @@
 {
   "schema": "switchyard.runtime-source-export/v1",
   "canonical_source": "Switchyard",
-  "canonical_revision": "45b5e3800a2cb3a53a8f015e4c587083c4827047",
+  "canonical_revision": "4642aa12cc51dec7642754c73bf557a445141215",
   "export_procedure": "tools/export-runtime.mjs",
   "authored_material_license": "Apache-2.0",
   "third_party_notices_retained": true,
@@ -13,8 +13,8 @@
     },
     "docs/DIRECT_API_OPENROUTER.md": {
       "canonical_path": "docs/DIRECT_API_OPENROUTER.md",
-      "bytes": 7240,
-      "sha256": "e08905c12b58216cff45a2755bad4417e2e8259986e41741e07c7cff6b2e381b"
+      "bytes": 8595,
+      "sha256": "30fe84f4adf96451753339e877f8d49bb1e78273379f92dcc15b8f1f45c4b23e"
     },
     "LICENSE": {
       "canonical_path": "packaging/runtime/LICENSE",
@@ -33,8 +33,8 @@
     },
     "README.md": {
       "canonical_path": "packaging/runtime/README.md",
-      "bytes": 3225,
-      "sha256": "1825fce8b2c1ca639ba55c77f0fd2774be65740d1f3f53ad577ae3a25c00afe7"
+      "bytes": 3681,
+      "sha256": "f1ebdc4e7fb357c1fcbebf5c8afe2c3c28083123df7b32989c6658ee60a80cbe"
     },
     "src/switchyard/__init__.py": {
       "canonical_path": "src/switchyard/__init__.py",
@@ -83,8 +83,8 @@
     },
     "src/switchyard/direct_api.py": {
       "canonical_path": "src/switchyard/direct_api.py",
-      "bytes": 28696,
-      "sha256": "f12c46a1acfa1670501349972ede25bd6a8f23a912dbfef53a1706d9e97fdc1c"
+      "bytes": 32023,
+      "sha256": "0985b61315cb3fe30e1c579c36b51254284909cc4f54ea9fc05e1ecab45e40bd"
     },
     "src/switchyard/nightshift_adapter.py": {
       "canonical_path": "src/switchyard/nightshift_adapter.py",
@@ -93,8 +93,8 @@
     },
     "tests/test_direct_api.py": {
       "canonical_path": "tests/test_direct_api.py",
-      "bytes": 17338,
-      "sha256": "8fa59fcf25695efc33cfa55911ca737a9912c6fa2c0b97d786c223f7bbf040bf"
+      "bytes": 21167,
+      "sha256": "24e025c16bea3eccc3b38403a2e0ebb3fb09cf1c625965d482cc2128bd92cf05"
     },
     "tools/export-runtime.mjs": {
       "canonical_path": "scripts/export-runtime.mjs",
