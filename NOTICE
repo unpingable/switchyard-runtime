@@ -1,0 +1,10 @@
+Switchyard runtime source distribution
+Copyright 2026 James Beck and contributors
+
+The user's authored exported material is licensed under Apache License 2.0.
+This does not change the license of the private canonical repository as a whole.
+
+This distribution includes the RFC8785 Python implementation under
+src/switchyard/_vendor/rfc8785. Its original LICENSE and VENDOR.md are retained
+unchanged. Those notices, rather than this distribution's license, govern that
+third-party material.

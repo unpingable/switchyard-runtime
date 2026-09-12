@@ -1,0 +1,105 @@
+{
+  "schema": "switchyard.runtime-source-export/v1",
+  "canonical_source": "Switchyard",
+  "canonical_revision": "45b5e3800a2cb3a53a8f015e4c587083c4827047",
+  "export_procedure": "tools/export-runtime.mjs",
+  "authored_material_license": "Apache-2.0",
+  "third_party_notices_retained": true,
+  "files": {
+    "AGENTS.md": {
+      "canonical_path": "packaging/runtime/AGENTS.md",
+      "bytes": 1163,
+      "sha256": "2ba7f531b59388424a495c9365a89415f3e6e1290044e7f4f4f22cb2ddde67fe"
+    },
+    "docs/DIRECT_API_OPENROUTER.md": {
+      "canonical_path": "docs/DIRECT_API_OPENROUTER.md",
+      "bytes": 7240,
+      "sha256": "e08905c12b58216cff45a2755bad4417e2e8259986e41741e07c7cff6b2e381b"
+    },
+    "LICENSE": {
+      "canonical_path": "packaging/runtime/LICENSE",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    "NOTICE": {
+      "canonical_path": "packaging/runtime/NOTICE",
+      "bytes": 489,
+      "sha256": "9e3f3d2328ece22c2151dbd5d75f13b09234ffea5e0cb215bb735281fc321ee8"
+    },
+    "pyproject.toml": {
+      "canonical_path": "packaging/runtime/pyproject.toml",
+      "bytes": 654,
+      "sha256": "86f24faaeeee83ac27196c8540b7795f2e26b2e344f66bb266c966361690178f"
+    },
+    "README.md": {
+      "canonical_path": "packaging/runtime/README.md",
+      "bytes": 3225,
+      "sha256": "1825fce8b2c1ca639ba55c77f0fd2774be65740d1f3f53ad577ae3a25c00afe7"
+    },
+    "src/switchyard/__init__.py": {
+      "canonical_path": "src/switchyard/__init__.py",
+      "bytes": 94,
+      "sha256": "7e87a99d066685f2ff39be3b4b419d29c786d1ac9787ca1325fec67fb0ded9ef"
+    },
+    "src/switchyard/_vendor/__init__.py": {
+      "canonical_path": "src/switchyard/_vendor/__init__.py",
+      "bytes": 1,
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    "src/switchyard/_vendor/rfc8785/__init__.py": {
+      "canonical_path": "src/switchyard/_vendor/rfc8785/__init__.py",
+      "bytes": 496,
+      "sha256": "fa44927afd547caf7547247078bcf28863d1e69caf116d258c532b3f20ffd154"
+    },
+    "src/switchyard/_vendor/rfc8785/_impl.py": {
+      "canonical_path": "src/switchyard/_vendor/rfc8785/_impl.py",
+      "bytes": 7251,
+      "sha256": "c25bc3a046528482d53bee3487b837f31dd9c05f33e8f13288c7aab320932cec"
+    },
+    "src/switchyard/_vendor/rfc8785/LICENSE": {
+      "canonical_path": "src/switchyard/_vendor/rfc8785/LICENSE",
+      "bytes": 10174,
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+    },
+    "src/switchyard/_vendor/rfc8785/py.typed": {
+      "canonical_path": "src/switchyard/_vendor/rfc8785/py.typed",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "src/switchyard/_vendor/rfc8785/VENDOR.md": {
+      "canonical_path": "src/switchyard/_vendor/rfc8785/VENDOR.md",
+      "bytes": 560,
+      "sha256": "6e304ada68f0ca049453b9d354a0b380d1a0a773f5b5a8904c541d42458ac20c"
+    },
+    "src/switchyard/appserver.py": {
+      "canonical_path": "src/switchyard/appserver.py",
+      "bytes": 30328,
+      "sha256": "28f76568d7bfbc9dc5377b9c3370557c5398fb1a3b48c0cba55e54c652df6dfb"
+    },
+    "src/switchyard/config.py": {
+      "canonical_path": "src/switchyard/config.py",
+      "bytes": 8813,
+      "sha256": "95a0a58afdeff48f718315a4f69311df7eb10087d77219a7bf6af89a54d69757"
+    },
+    "src/switchyard/direct_api.py": {
+      "canonical_path": "src/switchyard/direct_api.py",
+      "bytes": 28696,
+      "sha256": "f12c46a1acfa1670501349972ede25bd6a8f23a912dbfef53a1706d9e97fdc1c"
+    },
+    "src/switchyard/nightshift_adapter.py": {
+      "canonical_path": "src/switchyard/nightshift_adapter.py",
+      "bytes": 64179,
+      "sha256": "0175931c61a7efdedef28a6265436216574d3b2040f60a5f0bf2949f1dd18945"
+    },
+    "tests/test_direct_api.py": {
+      "canonical_path": "tests/test_direct_api.py",
+      "bytes": 17338,
+      "sha256": "8fa59fcf25695efc33cfa55911ca737a9912c6fa2c0b97d786c223f7bbf040bf"
+    },
+    "tools/export-runtime.mjs": {
+      "canonical_path": "scripts/export-runtime.mjs",
+      "bytes": 2991,
+      "sha256": "307bf8b0b1728ca93cf233c9aa2ad17c2e36f704dace43b8162f50f68c9e5284"
+    }
+  }
+}
