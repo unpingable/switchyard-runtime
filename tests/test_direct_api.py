@@ -1,11 +1,20 @@
 import copy
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
+from pathlib import Path
+import sqlite3
+import subprocess
+import sys
+import threading
+import time
 
 import pytest
+import switchyard.direct_api as direct_api
 
 from switchyard.direct_api import (
     BINDING_DOMAIN, ENDPOINT, PROTOCOL, REQUEST_DOMAIN, RunStore, digest,
-    inspect, run,
+    DirectApiCaller, inspect, run,
 )
 from switchyard.nightshift_adapter import AdapterProtocolError, _canonical
 
@@ -170,6 +179,247 @@ def test_missing_credential_and_precontact_cancel_never_contact(tmp_path):
     assert execute(tmp_path / "auth", transport=fixture, credential_source=lambda _: None)["state"] == "AUTHENTICATION_UNAVAILABLE"
     assert execute(tmp_path / "cancel", transport=fixture, cancelled=lambda: True)["state"] == "CANCELLED_BEFORE_CONTACT"
     assert fixture.calls == []
+
+
+@pytest.mark.parametrize("cancelled,credential_source,first_state", [
+    (lambda: True, lambda _: "fixture-secret", "CANCELLED_BEFORE_CONTACT"),
+    (lambda: False, lambda _: None, "AUTHENTICATION_UNAVAILABLE"),
+])
+def test_known_no_contact_outcome_releases_only_concurrency_slot(
+        tmp_path, cancelled, credential_source, first_state):
+    request, admitted, binding = v2_inputs()
+    request["spend_budget_micros"] = 10_000
+    request["request_digest"] = digest(REQUEST_DOMAIN + _canonical(
+        {key: value for key, value in request.items() if key != "request_digest"}
+    ))
+    binding["request_digest"] = request["request_digest"]
+    binding["binding_digest"] = digest(BINDING_DOMAIN + _canonical(
+        {key: value for key, value in binding.items() if key != "binding_digest"}
+    ))
+    state = tmp_path / "direct.sqlite"
+    first = run(request, admitted, binding, RunStore(state),
+                transport=FixtureTransport(), credential_source=credential_source,
+                cancellation_requested=cancelled)
+    assert first["state"] == first_state
+    with sqlite3.connect(state) as db:
+        assert db.execute(
+            "SELECT active FROM direct_api_reservations WHERE dispatch=?",
+            (request["dispatch_occurrence_id"],),
+        ).fetchone() == (0,)
+        assert db.execute("SELECT sum(reserved_micros) FROM direct_api_reservations").fetchone() == (4176,)
+
+    second = copy.deepcopy(request)
+    second_binding = copy.deepcopy(binding)
+    second.update(request_id="request-direct-002", work_attempt_id="attempt-direct-002",
+                  dispatch_occurrence_id="dispatch-direct-002")
+    second["request_digest"] = digest(REQUEST_DOMAIN + _canonical(
+        {key: value for key, value in second.items() if key != "request_digest"}
+    ))
+    for key in ("request_id", "work_attempt_id", "dispatch_occurrence_id", "request_digest"):
+        second_binding[key] = second[key]
+    second_binding["binding_digest"] = digest(BINDING_DOMAIN + _canonical(
+        {key: value for key, value in second_binding.items() if key != "binding_digest"}
+    ))
+    fixture = FixtureTransport(); fixture.calls = []
+    result = run(second, admitted, second_binding, RunStore(state), transport=fixture,
+                 credential_source=lambda _: "fixture-secret")
+    assert result["state"] == "PROVIDER_COMPLETED"
+    assert len(fixture.calls) == 1
+
+
+def _blocking_child(tmp_path: Path) -> tuple[tuple[str, ...], Path]:
+    marker = tmp_path / "child.pid"
+    script = tmp_path / "blocked_transport.py"
+    script.write_text(
+        "import pathlib,sys,time\n"
+        "sys.stdin.buffer.read()\n"
+        "pathlib.Path(sys.argv[1]).write_text(str(__import__('os').getpid()))\n"
+        "time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    return (sys.executable, str(script), str(marker)), marker
+
+
+def _assert_child_stopped(marker: Path) -> None:
+    pid = int(marker.read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_isolated_transport_total_deadline_stops_blocked_child(tmp_path):
+    command, marker = _blocking_child(tmp_path)
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        direct_api._isolated_http_transport(
+            endpoint=ENDPOINT, body=b"{}", credential="fixture-secret",
+            timeout_seconds=1, maximum_response_bytes=1024,
+            cancellation_requested=lambda: False, child_command=command,
+        )
+    assert 0.8 <= time.monotonic() - started < 3
+    _assert_child_stopped(marker)
+
+
+def test_isolated_transport_uses_one_private_pipe_and_strips_credential_environment(tmp_path, monkeypatch):
+    marker = tmp_path / "child.json"
+    script = tmp_path / "fixture_transport.py"
+    script.write_text(
+        "import base64,json,os,pathlib,sys\n"
+        "request=json.load(sys.stdin)\n"
+        "pathlib.Path(sys.argv[1]).write_text(json.dumps({'calls':1,'credential_in_pipe':request['credential']=='fixture-secret','credential_in_environment':'OPENROUTER_API_KEY' in os.environ}))\n"
+        "json.dump({'kind':'response','status':200,'body':base64.b64encode(b'bounded').decode('ascii')},sys.stdout,separators=(',',':'),sort_keys=True)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fixture-secret")
+    status, response = direct_api._isolated_http_transport(
+        endpoint=ENDPOINT, body=b"{}", credential="fixture-secret",
+        timeout_seconds=10, maximum_response_bytes=1024,
+        cancellation_requested=lambda: False,
+        child_command=(sys.executable, str(script), str(marker)),
+    )
+    assert (status, response) == (200, b"bounded")
+    assert json.loads(marker.read_text(encoding="utf-8")) == {
+        "calls": 1, "credential_in_pipe": True, "credential_in_environment": False,
+    }
+
+
+def test_isolated_transport_inflight_cancel_stops_one_child(tmp_path):
+    command, marker = _blocking_child(tmp_path)
+    observations = 0
+    def cancelled():
+        nonlocal observations
+        observations += 1
+        return marker.exists()
+    with pytest.raises(direct_api.LocalCancellation):
+        direct_api._isolated_http_transport(
+            endpoint=ENDPOINT, body=b"{}", credential="fixture-secret",
+            timeout_seconds=10, maximum_response_bytes=1024,
+            cancellation_requested=cancelled, child_command=command,
+        )
+    assert observations >= 2
+    assert marker.read_text(encoding="utf-8").isdigit()
+    _assert_child_stopped(marker)
+
+
+def test_isolated_transport_callback_failure_still_stops_child(tmp_path):
+    command, marker = _blocking_child(tmp_path)
+    def cancellation_failure():
+        if marker.exists():
+            raise RuntimeError("fixture callback failure")
+        return False
+    with pytest.raises(RuntimeError, match="fixture callback failure"):
+        direct_api._isolated_http_transport(
+            endpoint=ENDPOINT, body=b"{}", credential="fixture-secret",
+            timeout_seconds=10, maximum_response_bytes=1024,
+            cancellation_requested=cancellation_failure, child_command=command,
+        )
+    _assert_child_stopped(marker)
+
+
+def test_default_child_entrypoint_is_pinned_against_cwd_and_pythonpath(tmp_path):
+    shadow = tmp_path / "shadow" / "switchyard"
+    shadow.mkdir(parents=True)
+    marker = tmp_path / "shadow-imported"
+    (shadow / "__init__.py").write_text("", encoding="utf-8")
+    (shadow / "direct_api.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('wrong')\n",
+        encoding="utf-8",
+    )
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(tmp_path / "shadow")
+    result = subprocess.run(direct_api._http_child_command(), input=b"{}",
+                            cwd=tmp_path / "shadow", env=environment,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            timeout=3, check=False)
+    assert result.returncode == 2
+    assert result.stdout == b""
+    assert not marker.exists()
+
+
+def test_exact_child_entrypoint_runs_existing_http_transport_against_loopback(tmp_path):
+    observations = []
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers["Content-Length"]))
+            observations.append((self.path, self.headers["Authorization"], body))
+            response = b'{"fixture":"bounded"}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
+        def log_message(self, format, *args):
+            del format, args
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    endpoint = f"http://127.0.0.1:{server.server_port}/synthetic"
+    source_root = str(Path(direct_api.__file__).resolve().parents[1])
+    bootstrap = (
+        "import importlib,sys;module=sys.argv.pop(1);root=sys.argv.pop(1);"
+        "endpoint=sys.argv.pop(1);sys.path.insert(0,root);"
+        "loaded=importlib.import_module(module);loaded.ENDPOINT=endpoint;loaded.main()"
+    )
+    command = (sys.executable, "-P", "-c", bootstrap,
+               direct_api._HTTP_CHILD_MODULE, source_root, endpoint,
+               "--http-transport-child")
+    try:
+        status, response = direct_api._isolated_http_transport(
+            endpoint=endpoint, body=b'{"request":"fixture"}',
+            credential="fixture-secret", timeout_seconds=3,
+            maximum_response_bytes=1024,
+            cancellation_requested=lambda: False, child_command=command,
+        )
+    finally:
+        server.shutdown(); server.server_close(); thread.join(timeout=3)
+    assert (status, response) == (200, b'{"fixture":"bounded"}')
+    assert observations == [("/synthetic", "Bearer fixture-secret", b'{"request":"fixture"}')]
+
+
+def test_inflight_local_cancel_is_persisted_uncertain_and_keeps_slot(monkeypatch, tmp_path):
+    request, admitted, binding = v2_inputs()
+    def locally_cancelled(**kwargs):
+        del kwargs
+        raise direct_api.LocalCancellation
+    monkeypatch.setattr(direct_api, "_isolated_http_transport", locally_cancelled)
+    state = tmp_path / "direct.sqlite"
+    result = run(request, admitted, binding, RunStore(state), transport=direct_api.http_transport,
+                 credential_source=lambda _: "fixture-secret")
+    assert result["state"] == "CANCELLED_AFTER_CONTACT_OUTCOME_UNKNOWN"
+    assert result["contact_state"] == "CONTACT_STARTED_OUTCOME_UNKNOWN"
+    with sqlite3.connect(state) as db:
+        assert db.execute(
+            "SELECT active FROM direct_api_reservations WHERE dispatch=?",
+            (request["dispatch_occurrence_id"],),
+        ).fetchone() == (1,)
+
+
+def test_direct_api_caller_closes_owned_store(monkeypatch, tmp_path):
+    closed = []
+    real_store = direct_api.RunStore
+    class TrackingStore(real_store):
+        def close(self):
+            closed.append(self)
+            super().close()
+    monkeypatch.setattr(direct_api, "RunStore", TrackingStore)
+    request, admitted, binding = inputs()
+    result = DirectApiCaller(tmp_path / "direct.sqlite", transport=FixtureTransport(),
+                             credential_source=lambda _: "fixture-secret").run(
+                                 request, admitted, binding,
+                                 cancellation_requested=lambda: False)
+    assert result["state"] == "PROVIDER_COMPLETED"
+    assert len(closed) == 1
+    with pytest.raises(sqlite3.ProgrammingError):
+        closed[0].db.execute("SELECT 1")
+
+    invalid = copy.deepcopy(request)
+    invalid["endpoint"] = "https://example.invalid"
+    with pytest.raises(AdapterProtocolError):
+        DirectApiCaller(tmp_path / "invalid.sqlite", transport=FixtureTransport(),
+                        credential_source=lambda _: "fixture-secret").run(
+                            invalid, admitted, binding,
+                            cancellation_requested=lambda: False)
+    assert len(closed) == 2
+    with pytest.raises(sqlite3.ProgrammingError):
+        closed[1].db.execute("SELECT 1")
 
 
 def test_after_contact_cancel_is_uncertain_and_never_retried(tmp_path):

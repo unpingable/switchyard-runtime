@@ -20,7 +20,8 @@ request. Its closed request and owner-binding records identify:
 - provider `openrouter`, the exact requested model, and a nonsecret enrolled
   account identity;
 - credential source `environment:OPENROUTER_API_KEY` without retaining its value;
-- timeout, response/output bounds, no retry/fallback, and the authority effect
+- one total monotonic local-acquisition duration, response/output bounds, no
+  retry/fallback, and the authority effect
   `LOCAL_AGENT_COMPUTE_SCHEDULING_ONLY`.
 
 The original `direct-api-request/v1` remains inspectable for retained v1
@@ -52,6 +53,12 @@ a provider-reported cost. This is intentionally conservative: uncertain and
 completed occurrences stay precharged until the owner performs a separately
 reviewed budget reconciliation. No response-cost-only path can create spend
 headroom.
+
+Known terminal outcomes before contact (including cancellation or an unavailable
+credential) also release their active concurrency slot while retaining the
+conservative monetary reservation. An outcome that may have contacted the
+provider keeps both its reservation and concurrency slot pinned for inspection;
+this adapter does not invent reconciliation or release authority.
 
 For v2, the outbound OpenRouter `provider` object also sets
 `require_parameters=true` and `max_price.prompt`, `.completion`, and `.request`
@@ -94,6 +101,28 @@ Reuse of a dispatch identity with different request, input, or owner binding
 refuses. After contact starts, timeout, transport loss, cancellation, malformed
 response, or process interruption remains uncertain and permits inspect/reconcile
 only—never regeneration under the same dispatch.
+
+The production HTTP call runs the existing redirect-disabled urllib transport in
+one isolated child. The parent owns the monotonic duration, local cancellation,
+and durable record. On deadline or a cancellation observed while the child is
+running, the parent terminates that local transport process and records an
+uncertain contacted outcome without retry. The credential crosses only the
+private child stdin pipe; it is not placed in argv, environment, logs, or durable
+state. The child receives no SQLite path or authority object.
+
+The launcher uses Python isolated-path mode and prepends the exact installed
+source parent derived from this module's resolved pathname. It does not inherit
+`PYTHONPATH`, so the child cannot select a different ambient Switchyard tree.
+Only proxy, certificate, and executable-search variables needed by the existing
+urllib transport are allowlisted into the child environment. The canonical child
+itself reads at most one bounded input envelope and emits at most the admitted
+response bound plus its fixed base64/JSON envelope; the parent rejects a larger
+result after collection. This output-memory claim depends on executing that
+exact pinned child, not an arbitrary injected test command.
+
+This is active **local acquisition cancellation**, not provider-side
+cancellation. The remote service may already have received or completed the
+request, so the outcome remains unknown and no replacement call is allowed.
 
 The request contains one `model`, no `models` fallback list, no tools, and
 `provider.allow_fallbacks=false`. OpenRouter documents that provider fallbacks

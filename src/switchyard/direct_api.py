@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import hashlib
 import argparse
+import base64
 import json
 import os
 from pathlib import Path
 import sqlite3
 import stat
+import subprocess
+import sys
 import time
 from typing import Callable, Protocol
 import urllib.error
@@ -23,6 +26,11 @@ PROTOCOL = "switchyard.openrouter-chat-completions/v1"
 ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 REQUEST_DOMAIN = b"switchyard.direct-api-request.digest/v1\0"
 BINDING_DOMAIN = b"switchyard.direct-api-owner-binding.digest/v1\0"
+_HTTP_CHILD_MODULE = "switchyard.direct_api"
+_HTTP_CHILD_BOOTSTRAP = (
+    "import importlib,sys;module=sys.argv.pop(1);root=sys.argv.pop(1);"
+    "sys.path.insert(0,root);importlib.import_module(module).main()"
+)
 REQUEST_FIELDS = frozenset({
     "schema", "request_digest", "request_id", "work_attempt_id",
     "dispatch_occurrence_id", "admitted_input_sha256", "provider_id",
@@ -61,6 +69,10 @@ class Transport(Protocol):
 
 class ResponseOverBound(Exception):
     """The single response crossed the admitted retained-byte boundary."""
+
+
+class LocalCancellation(Exception):
+    """The parent stopped local acquisition after contact had started."""
 
 
 def _require_id(name: str, value: object) -> None:
@@ -224,6 +236,137 @@ def http_transport(*, endpoint: str, body: bytes, credential: str,
         return int(response.status), raw
 
 
+def _http_transport_child() -> None:
+    """Run only the existing urllib transport from bounded private stdin."""
+    maximum_envelope = 16 * 1024 * 1024
+    raw_request = sys.stdin.buffer.read(maximum_envelope + 1)
+    if len(raw_request) > maximum_envelope:
+        raise SystemExit(2)
+    try:
+        envelope = json.loads(raw_request)
+        if (not isinstance(envelope, dict)
+                or frozenset(envelope) != {"endpoint", "body", "credential", "timeout_seconds", "maximum_response_bytes"}
+                or envelope["endpoint"] != ENDPOINT
+                or not isinstance(envelope["body"], str)
+                or not isinstance(envelope["credential"], str)
+                or not isinstance(envelope["timeout_seconds"], int)
+                or isinstance(envelope["timeout_seconds"], bool)
+                or not 1 <= envelope["timeout_seconds"] <= 300
+                or not isinstance(envelope["maximum_response_bytes"], int)
+                or isinstance(envelope["maximum_response_bytes"], bool)
+                or not 1024 <= envelope["maximum_response_bytes"] <= 16 * 1024 * 1024):
+            raise ValueError
+        body = base64.b64decode(envelope["body"], validate=True)
+        if len(body) > 8 * 1024 * 1024:
+            raise ValueError
+    except (ValueError, TypeError, json.JSONDecodeError):
+        raise SystemExit(2) from None
+    try:
+        status, response = http_transport(
+            endpoint=envelope["endpoint"], body=body,
+            credential=envelope["credential"],
+            timeout_seconds=envelope["timeout_seconds"],
+            maximum_response_bytes=envelope["maximum_response_bytes"],
+        )
+        result = {"kind": "response", "status": status,
+                  "body": base64.b64encode(response).decode("ascii")}
+    except BaseException as error:
+        result = {"kind": "error", "error_class": type(error).__name__}
+    sys.stdout.buffer.write(_canonical(result))
+
+
+def _stop_child(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        process.wait()
+        return
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        process.wait()
+        return
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=1)
+
+
+def _http_child_command() -> tuple[str, ...]:
+    source_root = str(Path(__file__).resolve().parents[1])
+    return (sys.executable, "-P", "-c", _HTTP_CHILD_BOOTSTRAP,
+            _HTTP_CHILD_MODULE, source_root, "--http-transport-child")
+
+
+def _isolated_http_transport(*, endpoint: str, body: bytes, credential: str,
+                             timeout_seconds: int, maximum_response_bytes: int,
+                             cancellation_requested: Callable[[], bool],
+                             child_command: tuple[str, ...] | None = None) -> tuple[int, bytes]:
+    """Supervise one urllib transport child under one total monotonic deadline."""
+    payload = _canonical({
+        "endpoint": endpoint,
+        "body": base64.b64encode(body).decode("ascii"),
+        "credential": credential,
+        "timeout_seconds": timeout_seconds,
+        "maximum_response_bytes": maximum_response_bytes,
+    })
+    command = child_command or _http_child_command()
+    deadline = time.monotonic() + timeout_seconds
+    child_environment = {
+        key: os.environ[key] for key in (
+            "HTTPS_PROXY", "NO_PROXY", "PATH", "SSL_CERT_DIR", "SSL_CERT_FILE",
+            "http_proxy", "https_proxy", "no_proxy",
+        ) if key in os.environ
+    }
+    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, close_fds=True,
+                               env=child_environment)
+    pending_input: bytes | None = payload
+    try:
+        while True:
+            if cancellation_requested():
+                raise LocalCancellation
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            try:
+                output, _ = process.communicate(input=pending_input, timeout=min(remaining, 0.05))
+                break
+            except subprocess.TimeoutExpired:
+                pending_input = None
+    finally:
+        if process.poll() is None:
+            _stop_child(process)
+        for pipe in (process.stdin, process.stdout):
+            if pipe is not None and not pipe.closed:
+                pipe.close()
+    if process.returncode != 0 or len(output) > (maximum_response_bytes * 2 + 4096):
+        raise RuntimeError("isolated transport child failed")
+    try:
+        result = json.loads(output)
+        if (not isinstance(result, dict) or result.get("kind") not in {"response", "error"}):
+            raise ValueError
+        if result["kind"] == "error":
+            if result.get("error_class") in {"TimeoutError", "socket.timeout"}:
+                raise TimeoutError
+            if result.get("error_class") == "ResponseOverBound":
+                raise ResponseOverBound
+            raise RuntimeError("isolated transport failed")
+        if (frozenset(result) != {"kind", "status", "body"}
+                or not isinstance(result["status"], int)
+                or isinstance(result["status"], bool)
+                or not isinstance(result["body"], str)):
+            raise ValueError
+        response = base64.b64decode(result["body"], validate=True)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        raise RuntimeError("invalid isolated transport response") from None
+    if len(response) > maximum_response_bytes:
+        raise ResponseOverBound
+    return result["status"], response
+
+
 class RunStore:
     def __init__(self, path: Path):
         self.db = sqlite3.connect(path)
@@ -233,6 +376,15 @@ class RunStore:
         self.db.execute("CREATE TABLE IF NOT EXISTS direct_api_reservations (dispatch TEXT PRIMARY KEY, budget TEXT NOT NULL, reserved_micros INTEGER NOT NULL, active INTEGER NOT NULL)")
         self.db.execute("CREATE TABLE IF NOT EXISTS direct_api_budget_config (budget TEXT PRIMARY KEY, config BLOB NOT NULL)")
         self.db.commit()
+
+    def close(self) -> None:
+        self.db.close()
+
+    def __enter__(self) -> "RunStore":
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.close()
 
     def claim(self, request: dict, admitted_input: bytes, owner_binding: dict) -> tuple[dict, bool]:
         exact = (_canonical(request), admitted_input, _canonical(owner_binding))
@@ -344,9 +496,10 @@ class DirectApiCaller:
 
     def run(self, request: dict, admitted_input: bytes, owner_binding: dict, *,
             cancellation_requested: Callable[[], bool]) -> dict:
-        return run(request, admitted_input, owner_binding, RunStore(self.state),
-                   credential_source=self.credential_source, transport=self.transport,
-                   cancellation_requested=cancellation_requested)
+        with RunStore(self.state) as store:
+            return run(request, admitted_input, owner_binding, store,
+                       credential_source=self.credential_source, transport=self.transport,
+                       cancellation_requested=cancellation_requested)
 
 
 def inspect(path: Path, dispatch: str) -> dict:
@@ -385,40 +538,44 @@ def run(request: dict, admitted_input: bytes, owner_binding: dict, store: RunSto
     record, fresh = store.claim(request, admitted_input, owner_binding)
     if not fresh:
         return record
-    if cancellation_requested():
-        record.update(state="CANCELLED_BEFORE_CONTACT", contact_state="NOT_CONTACTED",
-                      completion_state="NOT_COMPLETED")
-        record["ended_at_unix_ms"] = time.time_ns() // 1_000_000
-        store.update(record)
-        return record
-    credential = credential_source("OPENROUTER_API_KEY")
-    if not isinstance(credential, str) or not credential or len(credential) > 8192:
-        record.update(state="AUTHENTICATION_UNAVAILABLE", contact_state="NOT_CONTACTED",
-                      completion_state="NOT_COMPLETED")
-        record["ended_at_unix_ms"] = time.time_ns() // 1_000_000
-        store.update(record)
-        return record
-    body = _canonical({
-        "model": request["model_id"],
-        "messages": [{"role": "user", "content": admitted_input.decode("utf-8")}],
-        "provider": {"allow_fallbacks": False},
-        "stream": False,
-    })
-    if request["schema"] in {"switchyard.direct-api-request/v2", "switchyard.direct-api-request/v3"}:
-        body = _canonical({**json.loads(body), "max_tokens": request["maximum_completion_tokens"], "provider": {
-            "allow_fallbacks": False, "require_parameters": True,
-            "max_price": {"prompt": request["prompt_token_price_micros"],
-                          "completion": request["completion_token_price_micros"],
-                          "request": 0},
-        }})
-    if request["schema"] == "switchyard.direct-api-request/v3":
-        body = _canonical({**json.loads(body), "response_format": request["response_format"]})
-    record["contact_state"] = "CONTACT_STARTED_OUTCOME_UNKNOWN"
-    store.update(record)
     try:
-        status, raw = transport(endpoint=ENDPOINT, body=body, credential=credential,
-                                timeout_seconds=request["timeout_seconds"],
-                                maximum_response_bytes=request["maximum_response_bytes"])
+        if cancellation_requested():
+            record.update(state="CANCELLED_BEFORE_CONTACT", contact_state="NOT_CONTACTED",
+                          completion_state="NOT_COMPLETED")
+            return record
+        credential = credential_source("OPENROUTER_API_KEY")
+        if not isinstance(credential, str) or not credential or len(credential) > 8192:
+            record.update(state="AUTHENTICATION_UNAVAILABLE", contact_state="NOT_CONTACTED",
+                          completion_state="NOT_COMPLETED")
+            return record
+        body = _canonical({
+            "model": request["model_id"],
+            "messages": [{"role": "user", "content": admitted_input.decode("utf-8")}],
+            "provider": {"allow_fallbacks": False},
+            "stream": False,
+        })
+        if request["schema"] in {"switchyard.direct-api-request/v2", "switchyard.direct-api-request/v3"}:
+            body = _canonical({**json.loads(body), "max_tokens": request["maximum_completion_tokens"], "provider": {
+                "allow_fallbacks": False, "require_parameters": True,
+                "max_price": {"prompt": request["prompt_token_price_micros"],
+                              "completion": request["completion_token_price_micros"],
+                              "request": 0},
+            }})
+        if request["schema"] == "switchyard.direct-api-request/v3":
+            body = _canonical({**json.loads(body), "response_format": request["response_format"]})
+        record["contact_state"] = "CONTACT_STARTED_OUTCOME_UNKNOWN"
+        store.update(record)
+        if transport is http_transport:
+            status, raw = _isolated_http_transport(
+                endpoint=ENDPOINT, body=body, credential=credential,
+                timeout_seconds=request["timeout_seconds"],
+                maximum_response_bytes=request["maximum_response_bytes"],
+                cancellation_requested=cancellation_requested,
+            )
+        else:
+            status, raw = transport(endpoint=ENDPOINT, body=body, credential=credential,
+                                    timeout_seconds=request["timeout_seconds"],
+                                    maximum_response_bytes=request["maximum_response_bytes"])
         if not isinstance(status, int) or isinstance(status, bool) or not isinstance(raw, bytes):
             raise AdapterProtocolError("transport returned an invalid response envelope")
         if len(raw) > request["maximum_response_bytes"]:
@@ -491,6 +648,10 @@ def run(request: dict, admitted_input: bytes, owner_binding: dict, store: RunSto
         record.update(state="RESPONSE_OVER_BOUND", contact_state="RESPONSE_OBSERVED",
                       completion_state="NOT_ACCEPTABLE_AS_REQUESTED_COMPLETION")
         return record
+    except LocalCancellation:
+        record.update(state="CANCELLED_AFTER_CONTACT_OUTCOME_UNKNOWN",
+                      completion_state="NOT_OBSERVABLE")
+        return record
     except TimeoutError:
         record.update(state="LOCAL_TIMEOUT_OUTCOME_UNKNOWN", completion_state="NOT_OBSERVABLE")
         return record
@@ -535,6 +696,9 @@ def _load_canonical(path: Path, maximum: int, label: str) -> dict:
 
 
 def main() -> None:
+    if sys.argv[1:] == ["--http-transport-child"]:
+        _http_transport_child()
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, required=True)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -554,7 +718,8 @@ def main() -> None:
         if not isinstance(maximum, int) or isinstance(maximum, bool) or not 1 <= maximum <= 1024 * 1024:
             raise AdapterProtocolError("invalid maximum_input_bytes")
         admitted_input = _read_bounded(args.admitted_input, maximum, "admitted input")
-        result = run(request, admitted_input, owner_binding, RunStore(args.state))
+        with RunStore(args.state) as store:
+            result = run(request, admitted_input, owner_binding, store)
     print(_canonical(result).decode())
 
 

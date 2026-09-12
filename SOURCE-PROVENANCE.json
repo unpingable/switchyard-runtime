@@ -1,7 +1,7 @@
 {
   "schema": "switchyard.runtime-source-export/v1",
   "canonical_source": "Switchyard",
-  "canonical_revision": "4642aa12cc51dec7642754c73bf557a445141215",
+  "canonical_revision": "25ff020d78713ff55c19005969a204e73e2cb1f5",
   "export_procedure": "tools/export-runtime.mjs",
   "authored_material_license": "Apache-2.0",
   "third_party_notices_retained": true,
@@ -13,8 +13,8 @@
     },
     "docs/DIRECT_API_OPENROUTER.md": {
       "canonical_path": "docs/DIRECT_API_OPENROUTER.md",
-      "bytes": 8595,
-      "sha256": "30fe84f4adf96451753339e877f8d49bb1e78273379f92dcc15b8f1f45c4b23e"
+      "bytes": 10461,
+      "sha256": "3eb34ca133114ce893bb4cef7798f82ffe77f0e146adb7fe659fbfe91385f5d1"
     },
     "LICENSE": {
       "canonical_path": "packaging/runtime/LICENSE",
@@ -83,8 +83,8 @@
     },
     "src/switchyard/direct_api.py": {
       "canonical_path": "src/switchyard/direct_api.py",
-      "bytes": 32023,
-      "sha256": "0985b61315cb3fe30e1c579c36b51254284909cc4f54ea9fc05e1ecab45e40bd"
+      "bytes": 39022,
+      "sha256": "cf129f7acca32ec6004782d74370e3e9f5f8e0ceafa1df5470e1b151fb299649"
     },
     "src/switchyard/nightshift_adapter.py": {
       "canonical_path": "src/switchyard/nightshift_adapter.py",
@@ -93,8 +93,8 @@
     },
     "tests/test_direct_api.py": {
       "canonical_path": "tests/test_direct_api.py",
-      "bytes": 21167,
-      "sha256": "24e025c16bea3eccc3b38403a2e0ebb3fb09cf1c625965d482cc2128bd92cf05"
+      "bytes": 32559,
+      "sha256": "3991fcf8b88b41d7d815a43cb4641f825e92d6ade21df1369e630d58700ea5e2"
     },
     "tools/export-runtime.mjs": {
       "canonical_path": "scripts/export-runtime.mjs",
