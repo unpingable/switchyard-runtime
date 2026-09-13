@@ -14,6 +14,14 @@ execution authority, or permission to reuse an earlier approved source route.
 - Other retained source frames remain capped at 16384 bytes. A server frame can
   therefore be refused even when total model text is below the 32768-byte output
   budget. The output budget is not a guarantee that every possible frame fits.
+- `BOUNDED_TURN_ECHO_V1` is a separate, schema-selected experimental context.
+  It retains at most 262144 raw bytes only for closed Codex97 lifecycle forms:
+  the exact selected text-input echo, and source-shaped agent-message output,
+  delta, or final summary frames. It does not enlarge arbitrary `item/*`,
+  server-request, response, or provider-boundary traffic. The agent text in
+  those forms remains limited to 32768 decoded UTF-8 bytes in total across
+  completed sequential items; the final summary must repeat the last completed
+  item. This raw framing allowance does not increase the worker-output budget.
 - Ordered acquisition retains its existing 256-item / 16-MiB queue, 4096-record
   limit, and 16-MiB cumulative snapshot-record bound. No raw frame is truncated,
   omitted to manufacture a clean cut, or replaced with a summary digest.
@@ -90,6 +98,12 @@ native graph additionally selects the enrolled requirement's exact source/schema
 limits and refuses a large snapshot under an old tuple. Consequently structural
 validation alone cannot advance an old enrolled dispatch.
 
+`BOUNDED_TURN_ECHO_V1` is likewise selected only by the new pinned
+`switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json` digest.
+It does not reinterpret `LEGACY_V1` or `BOUNDED_TURN_V1` records: those retained
+tuples keep their original 16384-byte incoming-frame limits, and a mismatched or
+unknown selector fails closed.
+
 ## Offline qualification only
 
 `tests/test_size_controls.py` constructs synthetic request bytes independently;
@@ -102,3 +116,7 @@ custody, and refuse duplicate recording without another dispatch. Synthetic
 `EXECUTION_ADMITTED` frames establish only local mapper/contract behavior, never
 that a provider request occurred. The optional `BOUNDED_TURN_LEGACY_FOREMAN`
 variable selects a frozen old binary solely for an offline V3 refusal check.
+`tests/test_bounded_turn_echo.py` and its generic vector exercise the selected
+echo forms, escaped raw framing, sequential completed-item accounting, and old
+context refusal. They are component qualification only, not real-review
+qualification or evidence of provider execution.

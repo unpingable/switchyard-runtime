@@ -24,9 +24,12 @@ const plain=['src/switchyard/__init__.py','src/switchyard/direct_api.py',
   'src/switchyard/schemas/switchyard.codex-provider-admission.beta.v1.schema.json',
   'src/switchyard/schemas/switchyard.codex-provider-admission.beta-final.v1.schema.json',
   'src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn.v1.schema.json',
+  'src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json',
   'tests/test_direct_api.py','tests/test_runtime_packaging.py','tests/test_review_verifier_export.py',
   'tests/test_prelaunch_contract.py','tests/fixtures/prelaunch-vector.json',
   'tests/test_size_controls.py','tests/fixtures/bounded-turn-synthetic.json',
+  'tests/test_bounded_turn_echo.py','tests/fixtures/bounded-turn-echo-vector.json',
+  'tests/fixtures/bounded_turn_echo_vector.py',
   'docs/BOUNDED_PROVIDER_CUSTODY_V1.md',
   'docs/DIRECT_API_OPENROUTER.md','docs/PROVIDER_PRELAUNCH_CLOSURE_V1.md'];
 const mapping=Object.fromEntries(plain.map(path=>[path,path]));

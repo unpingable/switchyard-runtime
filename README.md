@@ -87,6 +87,15 @@ thread durable. After the original process exits, that read may return
 testimony only: it neither replaces the retained original evidence nor repairs
 provider admission, usage, cost, review acceptance, or downstream permission.
 
+For the experimental `BOUNDED_TURN_ECHO_V1` custody context, see the
+[bounded provider custody contract](docs/BOUNDED_PROVIDER_CUSTODY_V1.md).
+It retains only exact source-shaped input echoes and bounded agent-output
+frames up to 256 KiB of raw JSON framing; decoded completed output remains a
+32 KiB aggregate across sequential items, while the existing 16 MiB queue and
+snapshot ceilings remain unchanged. This is component-tested transport custody,
+not a real-review qualification. Legacy and `BOUNDED_TURN_V1` schema pins keep
+their original incoming 16 KiB limits.
+
 ## One implementation and reproducible export
 
 `SOURCE-PROVENANCE.json` records the exact canonical revision, each exported

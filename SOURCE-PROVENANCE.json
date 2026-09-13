@@ -1,7 +1,7 @@
 {
   "schema": "switchyard.runtime-source-export/v1",
   "canonical_source": "Switchyard",
-  "canonical_revision": "8479cb77dc76632e64b66e84c4f75c9765e421a6",
+  "canonical_revision": "945a749ed8b26eff6dbb826717c74aebaec49146",
   "export_procedure": "tools/export-runtime.mjs",
   "authored_material_license": "Apache-2.0",
   "third_party_notices_retained": true,
@@ -13,13 +13,13 @@
     },
     "AGENTS.md": {
       "canonical_path": "packaging/runtime/AGENTS.md",
-      "bytes": 1163,
-      "sha256": "2ba7f531b59388424a495c9365a89415f3e6e1290044e7f4f4f22cb2ddde67fe"
+      "bytes": 1379,
+      "sha256": "3bd451be73d82816b649dc9bc3a3075273f53212d9951d775dbd0c900f6fba0b"
     },
     "docs/BOUNDED_PROVIDER_CUSTODY_V1.md": {
       "canonical_path": "docs/BOUNDED_PROVIDER_CUSTODY_V1.md",
-      "bytes": 6258,
-      "sha256": "b0ee2d95708f098dcdf44f873bc96acc62f1201f92b634513877ae0a3467d68d"
+      "bytes": 8031,
+      "sha256": "0dc158cf1d174e56199b4e5f53e33f8fe2886f5b8a0c18c183888ea709bc8805"
     },
     "docs/DIRECT_API_OPENROUTER.md": {
       "canonical_path": "docs/DIRECT_API_OPENROUTER.md",
@@ -48,8 +48,8 @@
     },
     "README.md": {
       "canonical_path": "packaging/runtime/README.md",
-      "bytes": 5644,
-      "sha256": "4d9bcc29821f2c85420c4920f719d33fd99d3bbf89c85406b4bdcc7497c116bd"
+      "bytes": 6737,
+      "sha256": "90c347f46c13eac0b1e6fb862ae3f999ea42e5f45c6daf306f04b802c2130b74"
     },
     "src/switchyard/__init__.py": {
       "canonical_path": "src/switchyard/__init__.py",
@@ -88,8 +88,8 @@
     },
     "src/switchyard/appserver.py": {
       "canonical_path": "src/switchyard/appserver.py",
-      "bytes": 31899,
-      "sha256": "70089aca7de9a690167a849def64e2e390b444c6c308f53a3cf2bdf34b925af5"
+      "bytes": 39093,
+      "sha256": "032a442915d94a27139abe00647b7be9ea4fc23dda97c9c7abe9fa3aa5887bb2"
     },
     "src/switchyard/config.py": {
       "canonical_path": "src/switchyard/config.py",
@@ -113,13 +113,13 @@
     },
     "src/switchyard/provider_admission.py": {
       "canonical_path": "src/switchyard/provider_admission.py",
-      "bytes": 53922,
-      "sha256": "aeba6198940efbad65b39c6ad1ead39df46232f0c9db851608ec205dbb8b471d"
+      "bytes": 61023,
+      "sha256": "23d9a8119885201c8f4341f21775c969a7645e4d4f5390f7cdd6b5a2c5c29a9a"
     },
     "src/switchyard/provider_runner.py": {
       "canonical_path": "src/switchyard/provider_runner.py",
-      "bytes": 51946,
-      "sha256": "85289653aacd141fc9e9ad704460ea7e903f748613ea3fe08c5d6d457cf692fd"
+      "bytes": 53465,
+      "sha256": "9d99d4d2ac391154233cabca104b18815c29e854897481ab3b70911f58355a6e"
     },
     "src/switchyard/review_verifier.py": {
       "canonical_path": "src/switchyard/review_verifier.py",
@@ -146,6 +146,11 @@
       "bytes": 13779,
       "sha256": "448c2535c9c9586754d222912bbc86bc09fadb3c98059dc134141aff08efb8ba"
     },
+    "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json": {
+      "canonical_path": "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json",
+      "bytes": 23680,
+      "sha256": "2bcf795c753a08d3c7e2ef8b521b44b155054fccbd50452662230d59ddd3f293"
+    },
     "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn.v1.schema.json": {
       "canonical_path": "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn.v1.schema.json",
       "bytes": 22612,
@@ -156,6 +161,16 @@
       "bytes": 13769,
       "sha256": "131f1f6e0cf8cb0aea26ed225c584440c81ffedd443c68ace23adecbe493cf93"
     },
+    "tests/fixtures/bounded_turn_echo_vector.py": {
+      "canonical_path": "tests/fixtures/bounded_turn_echo_vector.py",
+      "bytes": 4440,
+      "sha256": "918056f5df6e27f92a9fd8faf78c7674a27745c519f6fd46a73af93a2c7158ab"
+    },
+    "tests/fixtures/bounded-turn-echo-vector.json": {
+      "canonical_path": "tests/fixtures/bounded-turn-echo-vector.json",
+      "bytes": 345,
+      "sha256": "5543d5cbfc1ce0b9e8f68259946439795188d239f2b42d30600a2292de6400eb"
+    },
     "tests/fixtures/bounded-turn-synthetic.json": {
       "canonical_path": "tests/fixtures/bounded-turn-synthetic.json",
       "bytes": 12572,
@@ -165,6 +180,11 @@
       "canonical_path": "tests/fixtures/prelaunch-vector.json",
       "bytes": 3522,
       "sha256": "e183fe227eb28a0cb1337733434dd83b01f672ed8d86163848ca388828b69d77"
+    },
+    "tests/test_bounded_turn_echo.py": {
+      "canonical_path": "tests/test_bounded_turn_echo.py",
+      "bytes": 9856,
+      "sha256": "d7361098a14849ffa3e88b6d521e2ba5712e9917a000d8cc290a3f6b2fa32db4"
     },
     "tests/test_direct_api.py": {
       "canonical_path": "tests/test_direct_api.py",
@@ -193,8 +213,8 @@
     },
     "tools/export-runtime.mjs": {
       "canonical_path": "scripts/export-runtime.mjs",
-      "bytes": 4072,
-      "sha256": "dc935da9fe62ad9aad1f35360b68e3e7df87230be2bb7c141259feeec2a78a6c"
+      "bytes": 4301,
+      "sha256": "3e2cd6bbc6c653a2fd3549ccd748410ac2cb2522718e786266590d56ee213a06"
     }
   }
 }

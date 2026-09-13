@@ -21,7 +21,8 @@ from datetime import datetime, timezone
 from jsonschema import Draft202012Validator
 
 from .appserver import (AppServerClient, request_wire, client_request_byte_bound,
-    LEGACY_CAPTURE_CONTRACT, BOUNDED_TURN_CAPTURE_CONTRACT)
+    LEGACY_CAPTURE_CONTRACT, BOUNDED_TURN_CAPTURE_CONTRACT, BOUNDED_TURN_ECHO_CAPTURE_CONTRACT,
+    MAXIMUM_USER_INPUT_ECHO_BYTES, normalized_bounded_turn_input)
 from .nightshift_adapter import (
     AdapterProtocolError, MAXIMUM_BRIEF_BYTES, _canonical, _read_bounded_regular,
     _unique_object, validate_start,
@@ -54,6 +55,7 @@ RUNNER_SOURCE_CLOSURE = (
     "src/switchyard/schemas/switchyard.codex-provider-admission.beta.v1.schema.json",
     "src/switchyard/schemas/switchyard.codex-provider-admission.beta-final.v1.schema.json",
     "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn.v1.schema.json",
+    "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json",
 )
 BOUNDED_BASE_INSTRUCTIONS = (
     "You are a read-only source reviewer. Use only the supplied workspace and return "
@@ -80,6 +82,19 @@ def preflight_request(request: dict, brief: bytes, backend: dict) -> dict:
     maximum = client_request_byte_bound("turn/start", capture_contract_for_request(request))
     if len(wire) > maximum:
         raise AdapterProtocolError("worker brief exceeds bounded turn/start wire before backend start")
+    if capture_contract_for_request(request) == BOUNDED_TURN_ECHO_CAPTURE_CONTRACT:
+        expected_input = normalized_bounded_turn_input(params["input"])
+        # Codex97 attaches exact selected text to a lifecycle item. Reserve its
+        # largest closed envelope before the backend starts; a raw 256KiB
+        # turn/start request that cannot fit its own echo is refused here.
+        reserved_id = "\0" * 512
+        echo_item = {"type": "userMessage", "id": reserved_id, "clientId": None,
+            "content": expected_input}
+        for method, timestamp in (("item/started", "startedAtMs"), ("item/completed", "completedAtMs")):
+            echo = {"method": method, "params": {"threadId": reserved_id, "turnId": reserved_id,
+                "item": echo_item, timestamp: 9_007_199_254_740_991}}
+            if len(request_wire(echo)) > MAXIMUM_USER_INPUT_ECHO_BYTES:
+                raise AdapterProtocolError("worker brief exceeds bounded user input echo before backend start")
     return {"schema": "switchyard.provider-request-preflight/v1", "request_digest": request["request_digest"],
         "worker_brief_digest": request["worker_brief_digest"], "worker_brief_bytes": len(brief),
         "maximum_reserved_turn_start_wire_bytes": len(wire),
@@ -89,9 +104,12 @@ def preflight_request(request: dict, brief: bytes, backend: dict) -> dict:
 
 def capture_contract_for_request(request: dict) -> str:
     """Context from an already validated retained request, never from a snapshot."""
-    schema_bytes = (Path(__file__).parent / "schemas/switchyard.codex-provider-admission.bounded-turn.v1.schema.json").read_bytes()
-    return (BOUNDED_TURN_CAPTURE_CONTRACT if request["switchyard_schema_sha256"] == digest(schema_bytes)
-        else LEGACY_CAPTURE_CONTRACT)
+    schemas = Path(__file__).parent / "schemas"
+    echo = (schemas / "switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json").read_bytes()
+    bounded = (schemas / "switchyard.codex-provider-admission.bounded-turn.v1.schema.json").read_bytes()
+    if request["switchyard_schema_sha256"] == digest(echo):
+        return BOUNDED_TURN_ECHO_CAPTURE_CONTRACT
+    return BOUNDED_TURN_CAPTURE_CONTRACT if request["switchyard_schema_sha256"] == digest(bounded) else LEGACY_CAPTURE_CONTRACT
 
 
 def bounded_thread_start(workspace: Path, backend: dict) -> dict:
@@ -235,6 +253,7 @@ def validate_request(request: dict, brief: bytes) -> None:
     owner_schemas = [owner_schema]
     if request["codex_owner_head"] == provider_admission.FINAL_CODEX_SOURCE_HEAD:
         owner_schemas.append("switchyard.codex-provider-admission.bounded-turn.v1.schema.json")
+        owner_schemas.append("switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json")
     if request["switchyard_schema_sha256"] not in {
             digest((Path(__file__).parent / "schemas" / name).read_bytes()) for name in owner_schemas}:
         raise AdapterProtocolError("request owner/schema tuple differs")

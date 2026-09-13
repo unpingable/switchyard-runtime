@@ -7,7 +7,13 @@ from dataclasses import dataclass
 from typing import Any, Callable, TypeVar
 
 from ._vendor import rfc8785
-from .appserver import AcquisitionCut, AcquisitionEnvelope, ServerMessage
+from .appserver import (
+    AcquisitionCut, AcquisitionEnvelope, ServerMessage, BOUNDED_TURN_CAPTURE_CONTRACT,
+    BOUNDED_TURN_ECHO_CAPTURE_CONTRACT, MAXIMUM_BOUNDED_AGENT_OUTPUT_BYTES,
+    MAXIMUM_USER_INPUT_ECHO_BYTES,
+    is_bounded_turn_agent_output, is_bounded_turn_user_input_echo,
+    normalized_bounded_turn_input,
+)
 
 
 BINDING_SCHEMA = "switchyard.codex-provider-admission-binding/v1"
@@ -232,7 +238,7 @@ class ProviderAdmissionMapper:
         validate_binding(binding)
         from .appserver import client_request_byte_bound
         client_request_byte_bound(None, capture_contract)
-        if capture_contract == "BOUNDED_TURN_V1" and binding["codex_source_head"] != FINAL_CODEX_SOURCE_HEAD:
+        if capture_contract in {BOUNDED_TURN_CAPTURE_CONTRACT, BOUNDED_TURN_ECHO_CAPTURE_CONTRACT} and binding["codex_source_head"] != FINAL_CODEX_SOURCE_HEAD:
             raise ProviderAdmissionError("bounded capture requires the final supported source")
         self._capture_contract = capture_contract
         self._binding = copy.deepcopy(binding)
@@ -243,6 +249,14 @@ class ProviderAdmissionMapper:
         self.pending_started_at_ms: int | None = None
         self.open_response_id: str | None = None
         self.client_requests: dict[int, _ClientRequest] = {}
+        self._bounded_turn_input: list[dict[str, Any]] | None = None
+        self._bounded_input_item_id: str | None = None
+        self._bounded_input_methods: set[str] = set()
+        self._bounded_agent_item_id: str | None = None
+        self._bounded_agent_text: str | None = None
+        self._bounded_completed_agent_ids: set[str] = set()
+        self._bounded_completed_agent_bytes = 0
+        self._bounded_last_completed_agent: tuple[str, str] | None = None
         self.acquisition_cut: dict[str, Any] | None = None
         self.expected_acquisition_ordinal = 0
         self._current_acquisition_ordinal: int | None = None
@@ -554,6 +568,20 @@ class ProviderAdmissionMapper:
                     f"client-request/{request_method}",
                     raw,
                 )
+        if self._capture_contract == BOUNDED_TURN_ECHO_CAPTURE_CONTRACT and request_method == "turn/start":
+            try:
+                expected_input = normalized_bounded_turn_input(params.get("input") if isinstance(params, dict) else None)
+            except ValueError:
+                return self._mark_discrepancy(
+                    "bounded turn input is outside the closed echo shape",
+                    "client-request/turn/start", raw,
+                )
+            if self._bounded_turn_input is not None:
+                return self._mark_discrepancy(
+                    "bounded turn echo permits only one selected input",
+                    "client-request/turn/start", raw,
+                )
+            self._bounded_turn_input = expected_input
         if request_id in self.client_requests:
             return self._mark_discrepancy(
                 "duplicate client request identity", f"client-request/{request_method}", raw
@@ -648,7 +676,19 @@ class ProviderAdmissionMapper:
 
     def _consume_impl(self, message: ServerMessage, *, server_request: bool = False) -> dict[str, Any] | None:
         try:
-            raw = _raw_custody(message)
+            selected_echo = (
+                self._capture_contract == BOUNDED_TURN_ECHO_CAPTURE_CONTRACT
+                and (
+                    is_bounded_turn_user_input_echo(
+                        message, self._bounded_turn_input,
+                        thread_id=self._binding["thread_id"], turn_id=self._binding["turn_id"],
+                    )
+                    or is_bounded_turn_agent_output(
+                        message, thread_id=self._binding["thread_id"], turn_id=self._binding["turn_id"],
+                    )
+                )
+            )
+            raw = _raw_custody(message, MAXIMUM_USER_INPUT_ECHO_BYTES if selected_echo else MAXIMUM_RAW_EVIDENCE_BYTES)
         except ProviderAdmissionError as exc:
             return self._mark_discrepancy(str(exc), message.method or "unknown")
         method = message.method
@@ -694,17 +734,92 @@ class ProviderAdmissionMapper:
                 raw,
             )
         if method in {"thread/started", "turn/started", "turn/completed"}:
+            if method == "turn/completed" and self._capture_contract == BOUNDED_TURN_ECHO_CAPTURE_CONTRACT and selected_echo:
+                checked = self._bounded_turn_agent_output(method, message, raw)
+                if checked is not None:
+                    return checked
             return self._local_fact(method, message.params, raw)
+        if (method in {"item/started", "item/completed", "item/agentMessage/delta"}
+                and self._capture_contract == BOUNDED_TURN_ECHO_CAPTURE_CONTRACT and selected_echo):
+            return self._bounded_turn_agent_output(method, message, raw)
         if method.startswith(("providerAdmission/", "providerRequest/", "rawResponse/")):
             return self._mark_discrepancy(
                 "unknown provider-boundary notification", method, raw
             )
+        if method == "item/completed" and self._capture_contract == BOUNDED_TURN_ECHO_CAPTURE_CONTRACT:
+            item = message.params.get("item")
+            if (message.params.get("threadId") == self._binding["thread_id"]
+                    and message.params.get("turnId") == self._binding["turn_id"]
+                    and isinstance(item, dict) and item.get("type") == "agentMessage"
+                    and isinstance(item.get("text"), str)
+                    and not self._count_bounded_completed_agent(item["text"])):
+                return self._mark_discrepancy("bounded completed agent output exceeds decoded byte bound", method, raw)
         return self._record(
             "ACQUISITION_WATERMARK",
             method,
             raw,
             {"proves_provider_admission": False},
         )
+
+    def _bounded_turn_agent_output(
+        self, method: str, message: ServerMessage, raw: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        is_input = is_bounded_turn_user_input_echo(
+            message, self._bounded_turn_input,
+            thread_id=self._binding["thread_id"], turn_id=self._binding["turn_id"],
+        )
+        is_output = is_bounded_turn_agent_output(
+            message, thread_id=self._binding["thread_id"], turn_id=self._binding["turn_id"],
+        )
+        if not is_input and not is_output:
+            return self._mark_discrepancy(
+                "large item lifecycle is outside the selected bounded turn contract", method, raw
+            )
+        if is_input:
+            item_id = message.params["item"]["id"]
+            if method == "item/started":
+                if self._bounded_input_item_id is not None:
+                    return self._mark_discrepancy("duplicate bounded user input start", method, raw)
+                self._bounded_input_item_id = item_id
+            elif self._bounded_input_item_id != item_id or "item/started" not in self._bounded_input_methods:
+                return self._mark_discrepancy("bounded user input completion lacks exact start", method, raw)
+            if method in self._bounded_input_methods:
+                return self._mark_discrepancy("duplicate bounded user input lifecycle event", method, raw)
+            self._bounded_input_methods.add(method)
+        elif method in {"item/started", "item/completed"}:
+            item = message.params["item"]
+            item_id = item["id"]
+            if method == "item/started":
+                if self._bounded_agent_item_id is not None or item_id in self._bounded_completed_agent_ids:
+                    return self._mark_discrepancy("duplicate bounded agent output start", method, raw)
+                self._bounded_agent_item_id = item_id
+                self._bounded_agent_text = item["text"]
+            elif self._bounded_agent_item_id != item_id or item_id in self._bounded_completed_agent_ids:
+                return self._mark_discrepancy("bounded agent output completion lacks exact start", method, raw)
+            else:
+                self._bounded_agent_text = item["text"]
+                if not self._count_bounded_completed_agent(item["text"]):
+                    return self._mark_discrepancy("bounded completed agent output exceeds decoded byte bound", method, raw)
+                self._bounded_completed_agent_ids.add(item_id)
+                self._bounded_last_completed_agent = (item_id, item["text"])
+                self._bounded_agent_item_id = None
+                self._bounded_agent_text = None
+        elif method == "item/agentMessage/delta":
+            if self._bounded_agent_item_id is None or message.params["itemId"] != self._bounded_agent_item_id:
+                return self._mark_discrepancy("bounded agent delta lacks exact item start", method, raw)
+        else:  # Selected turn/completed summary; let the normal local-fact transition record it.
+            item = message.params["turn"]["items"][0]
+            if self._bounded_agent_item_id is not None or self._bounded_last_completed_agent != (item["id"], item["text"]):
+                return self._mark_discrepancy("bounded turn summary lacks exact completed agent item", method, raw)
+            return None
+        return self._record(
+            "ACQUISITION_WATERMARK", method, raw,
+            {"proves_provider_admission": False},
+        )
+
+    def _count_bounded_completed_agent(self, text: str) -> bool:
+        self._bounded_completed_agent_bytes += len(text.encode("utf-8"))
+        return self._bounded_completed_agent_bytes <= MAXIMUM_BOUNDED_AGENT_OUTPUT_BYTES
 
     def _common_request(self, params: dict[str, Any], fields: frozenset[str]) -> _Request:
         if not isinstance(params, dict) or frozenset(params) != fields:

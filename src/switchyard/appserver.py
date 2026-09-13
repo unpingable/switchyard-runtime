@@ -16,8 +16,11 @@ LOG = logging.getLogger(__name__)
 MAXIMUM_APP_SERVER_LINE_BYTES = 32 * 1024 * 1024
 MAXIMUM_RETAINED_ADAPTER_EVENT_BYTES = 16 * 1024
 MAXIMUM_TURN_START_REQUEST_BYTES = 256 * 1024
+MAXIMUM_USER_INPUT_ECHO_BYTES = 256 * 1024
+MAXIMUM_BOUNDED_AGENT_OUTPUT_BYTES = 32 * 1024
 LEGACY_CAPTURE_CONTRACT = "LEGACY_V1"
 BOUNDED_TURN_CAPTURE_CONTRACT = "BOUNDED_TURN_V1"
+BOUNDED_TURN_ECHO_CAPTURE_CONTRACT = "BOUNDED_TURN_ECHO_V1"
 MAXIMUM_APP_SERVER_MESSAGE_QUEUE_ITEMS = 256
 MAXIMUM_APP_SERVER_MESSAGE_QUEUE_BYTES = 16 * 1024 * 1024
 MAXIMUM_APP_SERVER_STDERR_LINE_BYTES = 16 * 1024
@@ -36,11 +39,98 @@ def request_wire(message: dict[str, Any]) -> bytes:
 
 
 def client_request_byte_bound(method: str | None, capture_contract: str = LEGACY_CAPTURE_CONTRACT) -> int:
-    if capture_contract not in {LEGACY_CAPTURE_CONTRACT, BOUNDED_TURN_CAPTURE_CONTRACT}:
+    if capture_contract not in {
+        LEGACY_CAPTURE_CONTRACT,
+        BOUNDED_TURN_CAPTURE_CONTRACT,
+        BOUNDED_TURN_ECHO_CAPTURE_CONTRACT,
+    }:
         raise ValueError("unknown provider capture contract")
     return (MAXIMUM_TURN_START_REQUEST_BYTES
-            if method == "turn/start" and capture_contract == BOUNDED_TURN_CAPTURE_CONTRACT
+            if method == "turn/start" and capture_contract in {
+                BOUNDED_TURN_CAPTURE_CONTRACT, BOUNDED_TURN_ECHO_CAPTURE_CONTRACT
+            }
             else MAXIMUM_RETAINED_ADAPTER_EVENT_BYTES)
+
+
+def _bounded_id(value: Any) -> bool:
+    return isinstance(value, str) and 1 <= len(value) <= 512
+
+
+def _bounded_i64(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and -(2**53 - 1) <= value <= 2**53 - 1
+
+
+def normalized_bounded_turn_input(value: Any) -> list[dict[str, Any]]:
+    """Normalize only Codex97's declared absent text-elements default."""
+    if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
+        raise ValueError("bounded turn input must contain exactly one text item")
+    item = value[0]
+    if frozenset(item) != {"type", "text"} or item.get("type") != "text" or not isinstance(item.get("text"), str):
+        raise ValueError("bounded turn input is not the closed text shape")
+    return [{"type": "text", "text": item["text"], "text_elements": []}]
+
+
+def _bounded_agent_item(value: Any) -> bool:
+    if not isinstance(value, dict) or frozenset(value) != {"type", "id", "text", "phase", "memoryCitation", "delivery"}:
+        return False
+    if value.get("type") != "agentMessage" or not _bounded_id(value.get("id")) or not isinstance(value.get("text"), str):
+        return False
+    if len(value["text"].encode("utf-8")) > MAXIMUM_BOUNDED_AGENT_OUTPUT_BYTES:
+        return False
+    return value.get("phase") in {None, "commentary", "final_answer"} and value.get("memoryCitation") is None and value.get("delivery") is None
+
+
+def is_bounded_turn_user_input_echo(
+    message: "ServerMessage", expected_input: list[dict[str, Any]] | None, *,
+    thread_id: str | None = None, turn_id: str | None = None,
+) -> bool:
+    if (expected_input is None or frozenset(message.raw) != {"method", "params"}
+            or message.method not in {"item/started", "item/completed"}):
+        return False
+    params = message.params
+    timestamp = "startedAtMs" if message.method == "item/started" else "completedAtMs"
+    if frozenset(params) != {"threadId", "turnId", "item", timestamp}:
+        return False
+    if params.get("threadId") != thread_id or (turn_id is not None and params.get("turnId") != turn_id) or not _bounded_i64(params[timestamp]):
+        return False
+    item = params.get("item")
+    if not isinstance(item, dict) or frozenset(item) != {"type", "id", "clientId", "content"}:
+        return False
+    return (item.get("type") == "userMessage" and _bounded_id(item.get("id"))
+            and item.get("clientId") is None and item.get("content") == expected_input)
+
+
+def is_bounded_turn_agent_output(message: "ServerMessage", *, thread_id: str | None = None,
+                                  turn_id: str | None = None) -> bool:
+    """Accept only source-defined 32KiB agent output frames, never generic item traffic."""
+    if frozenset(message.raw) != {"method", "params"}:
+        return False
+    params = message.params
+    if message.method in {"item/started", "item/completed"}:
+        timestamp = "startedAtMs" if message.method == "item/started" else "completedAtMs"
+        return (frozenset(params) == {"threadId", "turnId", "item", timestamp}
+                and params.get("threadId") == thread_id
+                and (turn_id is None or params.get("turnId") == turn_id)
+                and _bounded_i64(params[timestamp]) and _bounded_agent_item(params.get("item")))
+    if message.method == "item/agentMessage/delta":
+        return (frozenset(params) == {"threadId", "turnId", "itemId", "delta"}
+                and params.get("threadId") == thread_id
+                and (turn_id is None or params.get("turnId") == turn_id)
+                and _bounded_id(params.get("itemId")) and isinstance(params.get("delta"), str)
+                and len(params["delta"].encode("utf-8")) <= MAXIMUM_BOUNDED_AGENT_OUTPUT_BYTES)
+    if message.method != "turn/completed" or frozenset(params) != {"threadId", "turn", "emittedAtMs"}:
+        return False
+    turn = params.get("turn")
+    return (params.get("threadId") == thread_id and _bounded_i64(params["emittedAtMs"])
+            and isinstance(turn, dict)
+            and frozenset(turn) == {"id", "items", "itemsView", "status", "error", "startedAt", "completedAt", "durationMs"}
+            and (turn_id is None or turn.get("id") == turn_id)
+            and isinstance(turn.get("items"), list) and len(turn["items"]) == 1
+            and _bounded_agent_item(turn["items"][0]) and turn.get("itemsView") == "summary"
+            and turn.get("status") == "completed" and turn.get("error") is None
+            and (turn.get("startedAt") is None or _bounded_i64(turn["startedAt"]))
+            and (turn.get("completedAt") is None or _bounded_i64(turn["completedAt"]))
+            and (turn.get("durationMs") is None or _bounded_i64(turn["durationMs"])))
 
 
 @dataclass(frozen=True)
@@ -211,6 +301,8 @@ class AppServerClient:
         self._ids = itertools.count(1)
         self._pending: dict[int, queue.Queue[dict[str, Any]]] = {}
         self._pending_methods: dict[int, str] = {}
+        self._bounded_turn_echo: tuple[str, list[dict[str, Any]]] | None = None
+        self._bounded_turn_id: str | None = None
         self._pending_lock = threading.Lock()
         self.notifications: ByteBoundedQueue[ServerMessage] = ByteBoundedQueue(
             maximum_message_queue_items, maximum_message_queue_bytes, _message_bytes
@@ -319,6 +411,18 @@ class AppServerClient:
                 and (message.get("method") != request_method
                      or len(wire) > client_request_byte_bound(request_method, self.capture_contract))):
             raise AppServerError("client request exceeds exact pre-send custody bound")
+        if (self.capture_contract == BOUNDED_TURN_ECHO_CAPTURE_CONTRACT
+                and acquisition_kind == "CLIENT_REQUEST" and request_method == "turn/start"):
+            params = message.get("params")
+            if not isinstance(params, dict) or not _bounded_id(params.get("threadId")):
+                raise AppServerError("bounded turn echo lacks exact thread input")
+            try:
+                expected_input = normalized_bounded_turn_input(params.get("input"))
+            except ValueError as exc:
+                raise AppServerError("bounded turn echo input is outside the closed shape") from exc
+            if self._bounded_turn_echo is not None:
+                raise AppServerError("bounded turn echo permits only one selected input")
+            self._bounded_turn_echo = (params["threadId"], expected_input)
         with self._write_lock:
             if acquisition_kind is not None:
                 with self._acquisition_lock:
@@ -364,6 +468,12 @@ class AppServerClient:
         if "error" in response:
             raise AppServerError(f"{method} failed: {response['error']}")
         result = response.get("result")
+        if (method == "turn/start" and self.capture_contract == BOUNDED_TURN_ECHO_CAPTURE_CONTRACT
+                and isinstance(result, dict)):
+            turn = result.get("turn")
+            if not isinstance(turn, dict) or not _bounded_id(turn.get("id")):
+                raise AppServerError("bounded turn echo response lacks exact turn identity")
+            self._bounded_turn_id = turn["id"]
         return result if isinstance(result, dict) else {}
 
     def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
@@ -652,7 +762,22 @@ class AppServerClient:
                         "App Server method frame refused as malformed protocol shape", raw_line
                     )
                     continue
-                if len(raw_line) > MAXIMUM_RETAINED_ADAPTER_EVENT_BYTES:
+                echo = self._bounded_turn_echo
+                is_selected_echo = (
+                    self.capture_contract == BOUNDED_TURN_ECHO_CAPTURE_CONTRACT
+                    and echo is not None
+                    and len(raw_line) <= MAXIMUM_USER_INPUT_ECHO_BYTES
+                    and (
+                        is_bounded_turn_user_input_echo(
+                            ServerMessage(message, raw_bytes=raw_line), echo[1], thread_id=echo[0]
+                        )
+                        or is_bounded_turn_agent_output(
+                            ServerMessage(message, raw_bytes=raw_line), thread_id=echo[0],
+                            turn_id=self._bounded_turn_id,
+                        ) and self._bounded_turn_id is not None
+                    )
+                )
+                if len(raw_line) > MAXIMUM_RETAINED_ADAPTER_EVENT_BYTES and not is_selected_echo:
                     self.stdout_refused_frames += 1
                     self._record_acquisition_loss(
                         "App Server notification or server request refused by retained-event byte bound"

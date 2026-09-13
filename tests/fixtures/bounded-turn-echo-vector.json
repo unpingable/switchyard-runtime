@@ -1,0 +1,9 @@
+{
+  "schema": "switchyard.bounded-turn-echo-vector/v1",
+  "qualification": "SYNTHETIC_NO_PROVIDER_CONTACT",
+  "turn_start_wire_bytes": 118500,
+  "turn_start_fill": "S",
+  "agent_output_utf8_bytes": 32768,
+  "agent_output_fill": "\\u0000",
+  "expected_snapshot_digest": "sha256:2c1cc7763a5cbb3d5d74f80b84da7613836c1c648967b76cd98123107477c5b2"
+}
