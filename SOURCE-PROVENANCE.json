@@ -1,7 +1,7 @@
 {
   "schema": "switchyard.runtime-source-export/v1",
   "canonical_source": "Switchyard",
-  "canonical_revision": "dd1fc1e059d7bba8063065a0bb7281c24e62e97b",
+  "canonical_revision": "15e74fbf060d577cb6906cf7f41908e8301a5a51",
   "export_procedure": "tools/export-runtime.mjs",
   "authored_material_license": "Apache-2.0",
   "third_party_notices_retained": true,
@@ -13,8 +13,8 @@
     },
     "docs/DIRECT_API_OPENROUTER.md": {
       "canonical_path": "docs/DIRECT_API_OPENROUTER.md",
-      "bytes": 11232,
-      "sha256": "c91ec3b67fad4631aabaf683af41e08ce9fe18d10b2772faa5e1fb0863cbf23d"
+      "bytes": 11418,
+      "sha256": "0a41e594bb94634a956ae245e922dddbf19fcb5054050e89e7592391d533e7f7"
     },
     "LICENSE": {
       "canonical_path": "packaging/runtime/LICENSE",
@@ -33,8 +33,8 @@
     },
     "README.md": {
       "canonical_path": "packaging/runtime/README.md",
-      "bytes": 3681,
-      "sha256": "f1ebdc4e7fb357c1fcbebf5c8afe2c3c28083123df7b32989c6658ee60a80cbe"
+      "bytes": 3846,
+      "sha256": "b8e27f3cddb9b975b6907bfe8739e5caf097655113f5340e6176dff32e3600d3"
     },
     "src/switchyard/__init__.py": {
       "canonical_path": "src/switchyard/__init__.py",

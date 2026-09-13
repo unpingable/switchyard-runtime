@@ -31,9 +31,12 @@ does not enroll a caller or provision a provider account.
 The source supports retained v1 requests, enrolled budget-bounded v2 requests,
 and additive v3 requests with a caller-bound strict JSON response schema.
 Structured output does not replace the caller's validation or human review.
-The v3 repair is locally tested; a successful live Maude authoring walkthrough
-is still pending. Install the source revision selected by your caller's guide,
-not an unrelated Switchyard distribution with the same import name.
+The v3 repair is locally tested and one separately authorized Maude call
+returned a validated, scope-bound description-only proposal for review. That
+proposal remains unaccepted; this is not a full authoring walkthrough, human
+acceptance, or authority to act. Install the source revision selected by your
+caller’s guide, not an unrelated Switchyard distribution with the same import
+name.
 
 ## Trust and limits
 

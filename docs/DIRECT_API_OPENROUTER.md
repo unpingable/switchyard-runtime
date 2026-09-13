@@ -1,9 +1,11 @@
 # Bounded direct OpenRouter transport
 
 Status: **implemented and deterministically fixture-tested**. One bounded live
-v2 response was observed; Maude refused its Markdown-fenced JSON. That establishes
-provider contact, not a successful authoring walkthrough. V3 structured output
-has not yet been live-qualified.
+v2 response was observed; Maude refused its Markdown-fenced JSON. A later,
+separately authorized v3 response was accepted by Maude's closed parser as one
+scope-bound description-only proposal for review. It remains unaccepted. These
+records establish bounded provider contact and one proposed/diff result, not a
+full authoring walkthrough, human approval, or downstream authority.
 This module adds one explicit API acquisition route. It does not replace the
 Codex App Server adapter, admit work, authorize effects, evaluate model output,
 or establish provider availability.
