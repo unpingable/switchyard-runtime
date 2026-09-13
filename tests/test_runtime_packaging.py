@@ -39,7 +39,15 @@ assert scripts['switchyard-provider-runner'] == 'switchyard.provider_runner:main
 assert scripts['switchyard-review-verifier'] == 'switchyard.review_verifier:main'
 schemas = resources.files('switchyard').joinpath('schemas')
 names = sorted(item.name for item in schemas.iterdir() if item.name.endswith('.json'))
-assert len(names) == 6
+assert set(names) == {
+    'nightshift.provider-dispatch-occurrence.v1.schema.json',
+    'nightshift.worker-start-request.v3.schema.json',
+    'switchyard.codex-provider-admission.v1.schema.json',
+    'switchyard.codex-provider-admission.beta.v1.schema.json',
+    'switchyard.codex-provider-admission.beta-final.v1.schema.json',
+    'switchyard.codex-provider-admission.bounded-turn.v1.schema.json',
+    'switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json',
+}
 for name in names: assert json.loads(schemas.joinpath(name).read_text())['$schema']
 """
     environment = os.environ.copy()

@@ -1,7 +1,7 @@
 {
   "schema": "switchyard.runtime-source-export/v1",
   "canonical_source": "Switchyard",
-  "canonical_revision": "945a749ed8b26eff6dbb826717c74aebaec49146",
+  "canonical_revision": "ce5a3a0be8f90162581c820b85b2a785557aae24",
   "export_procedure": "tools/export-runtime.mjs",
   "authored_material_license": "Apache-2.0",
   "third_party_notices_retained": true,
@@ -203,8 +203,8 @@
     },
     "tests/test_runtime_packaging.py": {
       "canonical_path": "tests/test_runtime_packaging.py",
-      "bytes": 3221,
-      "sha256": "6d0aad71077be2a19bf871eb6439d9e99db10ec74547e5a5c5f3d611d30b1ca2"
+      "bytes": 3676,
+      "sha256": "d53c77abf4d51753f5e6460356ffd1ccb52d758b33447c0fbf9c17d0c529c100"
     },
     "tests/test_size_controls.py": {
       "canonical_path": "tests/test_size_controls.py",
