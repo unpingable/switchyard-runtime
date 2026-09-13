@@ -51,6 +51,14 @@ The durable runner still returns an existing occurrence before new preflight,
 backend capture, or request transmission. Response-loss recovery inspects that
 original occurrence; it does not open a replacement.
 
+The bounded `thread/start` request sets `ephemeral: true`. The runner's
+`reconcile` command starts a fresh App Server process and asks `thread/read` for
+the exact retained thread and turn. It cannot make the provider-side thread
+survive the original process, so post-exit reconciliation can honestly remain
+`NOT_OBSERVABLE`. An `OBSERVED_SAME_TURN` result is later provider-source
+testimony, not a transition that rewrites the retained occurrence or repairs
+admission, completion, review acceptance, usage, cost, or effect permission.
+
 ## Compatibility and identity
 
 V2 execution profiles omit `maximum_worker_output_bytes`, retain their original

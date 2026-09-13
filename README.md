@@ -79,6 +79,14 @@ work or silently choose another billable route. Preserve the record and its
 reservation and reconcile it; supervisor recovery does not recover provider
 execution. Missing usage/cost remains unobservable, not zero.
 
+The provider runner starts its bounded thread with `ephemeral: true`.
+`reconcile` opens a fresh App Server process and performs read-only
+`thread/read` for the retained thread and turn; it does not make an ephemeral
+thread durable. After the original process exits, that read may return
+`NOT_OBSERVABLE` or a local error. Even `OBSERVED_SAME_TURN` is later source
+testimony only: it neither replaces the retained original evidence nor repairs
+provider admission, usage, cost, review acceptance, or downstream permission.
+
 ## One implementation and reproducible export
 
 `SOURCE-PROVENANCE.json` records the exact canonical revision, each exported

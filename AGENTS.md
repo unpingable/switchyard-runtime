@@ -11,6 +11,9 @@ the exact occurrence/store/source revision and durable producer/log locations.
 After interruption inspect the existing occurrence before any successor request.
 Unknown provider outcomes stay unknown until evidence resolves them. Tool or
 credential availability does not grant permission for downstream effects.
+Durable local custody does not make an ephemeral provider thread recoverable.
+Read-only reconciliation may remain `NOT_OBSERVABLE`, and same-turn testimony
+does not replace the original evidence or repair admission.
 
 No credentials, real provider responses, private campaign records or canonical
 Git history belong in this public repository. Do not use legacy project secrets.
