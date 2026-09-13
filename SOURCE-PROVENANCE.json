@@ -1,11 +1,16 @@
 {
   "schema": "switchyard.runtime-source-export/v1",
   "canonical_source": "Switchyard",
-  "canonical_revision": "15e74fbf060d577cb6906cf7f41908e8301a5a51",
+  "canonical_revision": "fda1be3119a31ccb4511939cb3899349babff20d",
   "export_procedure": "tools/export-runtime.mjs",
   "authored_material_license": "Apache-2.0",
   "third_party_notices_retained": true,
   "files": {
+    ".gitignore": {
+      "canonical_path": "packaging/runtime/.gitignore",
+      "bytes": 353,
+      "sha256": "537d3228a4ebb2407167ed33e56a2d2b378bd327583f5fd040bb38c8b1bdeb1e"
+    },
     "AGENTS.md": {
       "canonical_path": "packaging/runtime/AGENTS.md",
       "bytes": 1163,
@@ -98,8 +103,8 @@
     },
     "tools/export-runtime.mjs": {
       "canonical_path": "scripts/export-runtime.mjs",
-      "bytes": 2991,
-      "sha256": "307bf8b0b1728ca93cf233c9aa2ad17c2e36f704dace43b8162f50f68c9e5284"
+      "bytes": 3004,
+      "sha256": "b0ea33384778c997904473db529ec31c65b63a39097ace73d289ab48609c1217"
     }
   }
 }

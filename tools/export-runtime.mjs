@@ -17,7 +17,7 @@ const plain=['src/switchyard/__init__.py','src/switchyard/direct_api.py',
   'src/switchyard/_vendor/rfc8785/VENDOR.md','src/switchyard/_vendor/rfc8785/py.typed',
   'tests/test_direct_api.py','docs/DIRECT_API_OPENROUTER.md'];
 const mapping=Object.fromEntries(plain.map(path=>[path,path]));
-for(const name of ['pyproject.toml','README.md','AGENTS.md','NOTICE','LICENSE'])
+for(const name of ['.gitignore','pyproject.toml','README.md','AGENTS.md','NOTICE','LICENSE'])
   mapping[name]='packaging/runtime/'+name;
 mapping['tools/export-runtime.mjs']='scripts/export-runtime.mjs';
 const files={};

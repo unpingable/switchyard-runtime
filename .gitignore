@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Runtime custody is local unless an exact specimen is deliberately reviewed.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sock
+.env
+
+# Editor and operating-system metadata.
+.DS_Store
+._*
+*.swp
+*.swo
+.idea/
+.vscode/
