@@ -15,6 +15,9 @@ from typing import Any, Generic, TypeVar
 LOG = logging.getLogger(__name__)
 MAXIMUM_APP_SERVER_LINE_BYTES = 32 * 1024 * 1024
 MAXIMUM_RETAINED_ADAPTER_EVENT_BYTES = 16 * 1024
+MAXIMUM_TURN_START_REQUEST_BYTES = 256 * 1024
+LEGACY_CAPTURE_CONTRACT = "LEGACY_V1"
+BOUNDED_TURN_CAPTURE_CONTRACT = "BOUNDED_TURN_V1"
 MAXIMUM_APP_SERVER_MESSAGE_QUEUE_ITEMS = 256
 MAXIMUM_APP_SERVER_MESSAGE_QUEUE_BYTES = 16 * 1024 * 1024
 MAXIMUM_APP_SERVER_STDERR_LINE_BYTES = 16 * 1024
@@ -25,6 +28,19 @@ MAXIMUM_APP_SERVER_DIAGNOSTIC_ITEMS = 64
 
 class AppServerError(RuntimeError):
     pass
+
+
+def request_wire(message: dict[str, Any]) -> bytes:
+    """The single serialization used for both pre-send checking and transmission."""
+    return json.dumps(message, separators=(",", ":"), ensure_ascii=False).encode("utf-8") + b"\n"
+
+
+def client_request_byte_bound(method: str | None, capture_contract: str = LEGACY_CAPTURE_CONTRACT) -> int:
+    if capture_contract not in {LEGACY_CAPTURE_CONTRACT, BOUNDED_TURN_CAPTURE_CONTRACT}:
+        raise ValueError("unknown provider capture contract")
+    return (MAXIMUM_TURN_START_REQUEST_BYTES
+            if method == "turn/start" and capture_contract == BOUNDED_TURN_CAPTURE_CONTRACT
+            else MAXIMUM_RETAINED_ADAPTER_EVENT_BYTES)
 
 
 @dataclass(frozen=True)
@@ -145,6 +161,7 @@ class AppServerClient:
         maximum_stderr_queue_items: int = MAXIMUM_APP_SERVER_STDERR_QUEUE_ITEMS,
         maximum_stderr_queue_bytes: int = MAXIMUM_APP_SERVER_STDERR_QUEUE_BYTES,
         enable_ordered_acquisition: bool = False,
+        capture_contract: str = LEGACY_CAPTURE_CONTRACT,
         maximum_ordered_queue_items: int = MAXIMUM_APP_SERVER_MESSAGE_QUEUE_ITEMS,
         maximum_ordered_queue_bytes: int = MAXIMUM_APP_SERVER_MESSAGE_QUEUE_BYTES,
         adapter_process_occurrence_id: str | None = None,
@@ -176,6 +193,8 @@ class AppServerClient:
         if not 1 <= maximum_ordered_queue_bytes <= MAXIMUM_APP_SERVER_MESSAGE_QUEUE_BYTES:
             raise ValueError("maximum_ordered_queue_bytes is outside the queue boundary")
         self.enable_ordered_acquisition = enable_ordered_acquisition
+        client_request_byte_bound(None, capture_contract)
+        self.capture_contract = capture_contract
         if (adapter_process_occurrence_id is None) != (app_server_session_identity is None):
             raise ValueError("cut identities must be supplied together")
         if enable_ordered_acquisition and adapter_process_occurrence_id is None:
@@ -295,10 +314,11 @@ class AppServerClient:
     ) -> None:
         if self._proc is None or self._proc.stdin is None:
             raise AppServerError("app-server is not running")
-        wire = (
-            json.dumps(message, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-            + b"\n"
-        )
+        wire = request_wire(message)
+        if (self.enable_ordered_acquisition and acquisition_kind == "CLIENT_REQUEST"
+                and (message.get("method") != request_method
+                     or len(wire) > client_request_byte_bound(request_method, self.capture_contract))):
+            raise AppServerError("client request exceeds exact pre-send custody bound")
         with self._write_lock:
             if acquisition_kind is not None:
                 with self._acquisition_lock:
@@ -310,7 +330,13 @@ class AppServerClient:
                         self._record_loss_locked(
                             "App Server ordered client request refused by bounded queue"
                         )
-            self._proc.stdin.write(wire)
+                        raise AppServerError("client request custody queue refused before send")
+            view = memoryview(wire)
+            while view:
+                written = self._proc.stdin.write(view)
+                if written is None or written <= 0:
+                    raise AppServerError("App Server request write made no progress")
+                view = view[written:]
             self._proc.stdin.flush()
 
     def request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:

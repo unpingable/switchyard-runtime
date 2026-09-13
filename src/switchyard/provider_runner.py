@@ -6,18 +6,22 @@ The enrolled Nightshift caller owns complete profile/requirement/dispatch admiss
 from __future__ import annotations
 
 import argparse
+import calendar
 import fcntl
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import stat
 import time
+from datetime import datetime, timezone
 
 from jsonschema import Draft202012Validator
 
-from .appserver import AppServerClient
+from .appserver import (AppServerClient, request_wire, client_request_byte_bound,
+    LEGACY_CAPTURE_CONTRACT, BOUNDED_TURN_CAPTURE_CONTRACT)
 from .nightshift_adapter import (
     AdapterProtocolError, MAXIMUM_BRIEF_BYTES, _canonical, _read_bounded_regular,
     _unique_object, validate_start,
@@ -30,6 +34,8 @@ PROTOCOL = "switchyard.codex-app-server/v2"
 VERSION = "2.0.0"
 V3_DOMAIN = b"nightshift.worker-start-request.digest/v3\0"
 DISPATCH_DOMAIN = b"nightshift.provider-dispatch-occurrence.digest/v1\0"
+PRELAUNCH_DOMAIN = b"switchyard.provider-prelaunch-closure.digest/v1\0"
+PRELAUNCH_SCHEMA = "switchyard.provider-prelaunch-closure/v1"
 PROVENANCE_SCHEMA = "switchyard.runtime-source-export/v1"
 RUNNER_SOURCE_CLOSURE = (
     "src/switchyard/__init__.py",
@@ -47,6 +53,7 @@ RUNNER_SOURCE_CLOSURE = (
     "src/switchyard/schemas/switchyard.codex-provider-admission.v1.schema.json",
     "src/switchyard/schemas/switchyard.codex-provider-admission.beta.v1.schema.json",
     "src/switchyard/schemas/switchyard.codex-provider-admission.beta-final.v1.schema.json",
+    "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn.v1.schema.json",
 )
 BOUNDED_BASE_INSTRUCTIONS = (
     "You are a read-only source reviewer. Use only the supplied workspace and return "
@@ -56,6 +63,35 @@ BOUNDED_DEVELOPER_INSTRUCTIONS = (
     "The worker output is testimony, not factual qualification or authorization. "
     "Report uncertainty and stay within the single bounded source-explanation task."
 )
+
+
+def bounded_turn_start(thread_id: str, backend: dict, brief: bytes) -> dict:
+    if not isinstance(thread_id, str) or not 1 <= len(thread_id) <= 512:
+        raise AdapterProtocolError("thread identity exceeds retained identity bound")
+    prompt = "Perform only the bounded work in this Nightshift worker brief. Do not spawn agents, change provider/model, or perform protected effects. Report evidence and uncertainty; your answer is not qualification.\n" + brief.decode()
+    return {"threadId": thread_id, "model": backend["model"], "input": [{"type": "text", "text": prompt}]}
+
+
+def preflight_request(request: dict, brief: bytes, backend: dict) -> dict:
+    """No backend/store use. Reserve the largest supported thread/request IDs."""
+    validate_request(request, brief)
+    params = bounded_turn_start("\0" * 512, backend, brief)
+    wire = request_wire({"id": 9007199254740991, "method": "turn/start", "params": params})
+    maximum = client_request_byte_bound("turn/start", capture_contract_for_request(request))
+    if len(wire) > maximum:
+        raise AdapterProtocolError("worker brief exceeds bounded turn/start wire before backend start")
+    return {"schema": "switchyard.provider-request-preflight/v1", "request_digest": request["request_digest"],
+        "worker_brief_digest": request["worker_brief_digest"], "worker_brief_bytes": len(brief),
+        "maximum_reserved_turn_start_wire_bytes": len(wire),
+        "maximum_turn_start_wire_bytes": maximum,
+        "maximum_output_bytes": request["maximum_output_bytes"], "provider_contact": False}
+
+
+def capture_contract_for_request(request: dict) -> str:
+    """Context from an already validated retained request, never from a snapshot."""
+    schema_bytes = (Path(__file__).parent / "schemas/switchyard.codex-provider-admission.bounded-turn.v1.schema.json").read_bytes()
+    return (BOUNDED_TURN_CAPTURE_CONTRACT if request["switchyard_schema_sha256"] == digest(schema_bytes)
+        else LEGACY_CAPTURE_CONTRACT)
 
 
 def bounded_thread_start(workspace: Path, backend: dict) -> dict:
@@ -149,14 +185,22 @@ def verify_runner_provenance(path: Path | str, request: dict, *, root_fd: int | 
     files = value["files"]
     if not isinstance(files, dict):
         raise AdapterProtocolError("runner source provenance files differ")
-    root = Path(__file__).resolve().parents[2]
+    package_root = Path(__file__).resolve().parent
     for relative in RUNNER_SOURCE_CLOSURE:
         item = files.get(relative)
         if not isinstance(item, dict) or set(item) != {"canonical_path", "bytes", "sha256"}:
             raise AdapterProtocolError("runner source provenance closure differs")
         if item["canonical_path"] != relative or type(item["bytes"]) is not int or not isinstance(item["sha256"], str):
             raise AdapterProtocolError("runner source provenance entry differs")
-        raw = _read_bounded_regular(root / relative, 16 * 1024 * 1024, "installed runner source")
+        prefix = "src/switchyard/"
+        if not relative.startswith(prefix):
+            raise AdapterProtocolError("runner source closure is outside the installed package")
+        installed_relative = relative.removeprefix(prefix)
+        raw = _read_bounded_regular(
+            package_root / installed_relative,
+            16 * 1024 * 1024,
+            "installed runner source",
+        )
         if item["bytes"] != len(raw) or item["sha256"] != hashlib.sha256(raw).hexdigest():
             raise AdapterProtocolError("installed runner source differs from provenance")
 
@@ -188,7 +232,11 @@ def validate_request(request: dict, brief: bytes) -> None:
         provider_admission.BETA_CODEX_SOURCE_HEAD: "switchyard.codex-provider-admission.beta.v1.schema.json",
         provider_admission.FINAL_CODEX_SOURCE_HEAD: "switchyard.codex-provider-admission.beta-final.v1.schema.json",
     }[request["codex_owner_head"]]
-    if request["switchyard_schema_sha256"] != digest((Path(__file__).parent / "schemas" / owner_schema).read_bytes()):
+    owner_schemas = [owner_schema]
+    if request["codex_owner_head"] == provider_admission.FINAL_CODEX_SOURCE_HEAD:
+        owner_schemas.append("switchyard.codex-provider-admission.bounded-turn.v1.schema.json")
+    if request["switchyard_schema_sha256"] not in {
+            digest((Path(__file__).parent / "schemas" / name).read_bytes()) for name in owner_schemas}:
         raise AdapterProtocolError("request owner/schema tuple differs")
     basis = {k: v for k, v in request.items() if k != "request_digest"}
     if request["request_digest"] != digest(V3_DOMAIN + _canonical(basis)):
@@ -208,7 +256,11 @@ def validate_request(request: dict, brief: bytes) -> None:
         raise AdapterProtocolError("V3 dispatch/owner identity mismatch")
 
 
-def verify_backend(spec: dict, request: dict) -> tuple[list[str], int]:
+class ExecutableCaptureError(AdapterProtocolError):
+    """The runner observed executable capture fail before claim or backend start."""
+
+
+def validate_backend_spec(spec: dict, request: dict) -> None:
     fields = {"schema", "executable", "executable_sha256", "executable_shape", "codex_source_head", "codex_home", "provider", "model"}
     if set(spec) != fields or spec["schema"] != "switchyard.provider-backend/v1":
         raise AdapterProtocolError("closed backend configuration mismatch")
@@ -217,6 +269,10 @@ def verify_backend(spec: dict, request: dict) -> tuple[list[str], int]:
         or spec["provider"] != request["provider_id"] or spec["model"] != request["model_id"]
         or spec["provider"] != "openai"):
         raise AdapterProtocolError("explicit provider/model/source selection mismatch")
+
+
+def verify_backend(spec: dict, request: dict) -> tuple[list[str], int]:
+    validate_backend_spec(spec, request)
     path = Path(spec["executable"])
     if not path.is_absolute() or not os.access(path, os.X_OK):
         raise AdapterProtocolError("backend executable must be absolute and executable")
@@ -229,7 +285,10 @@ def verify_backend(spec: dict, request: dict) -> tuple[list[str], int]:
         command = [str(path), "app-server", "--listen", "stdio://"]
     else:
         raise AdapterProtocolError("unknown executable shape")
-    captured = capture_verified_executable(path, spec["executable_sha256"])
+    try:
+        captured = capture_verified_executable(path, spec["executable_sha256"])
+    except (OSError, AdapterProtocolError) as error:
+        raise ExecutableCaptureError("backend executable capture failed before provider claim") from error
     command[0] = f"/proc/self/fd/{captured}"
     return command + ["-c", 'provider_retry_policy="disabled"'], captured
 
@@ -284,20 +343,143 @@ def validate_dispatch(dispatch: dict, request: dict, backend: dict) -> None:
         raise AdapterProtocolError("dispatch execution identity mismatch")
 
 
+def prelaunch_binding(request: dict, brief: bytes, backend: dict, dispatch: dict) -> dict:
+    """Exact original inputs, including source identities; no provider observations."""
+    return {**{key: request[key] for key in (
+        "packet_digest", "run_id", "work_item_id", "work_attempt_id", "dispatch_occurrence_id",
+        "request_digest", "worker_brief_digest", "switchyard_owner_head", "codex_owner_head")},
+        "adapter_process_occurrence_id": dispatch["adapter_process_occurrence_id"],
+        "request_sha256": digest(_canonical(request)), "brief_sha256": digest(brief),
+        "backend_sha256": digest(_canonical(backend)), "dispatch_digest": dispatch["dispatch_digest"],
+        "dispatch_sha256": digest(_canonical(dispatch))}
+
+
+def _hexadecimal(value: object, length: int) -> bool:
+    return isinstance(value, str) and len(value) == length and all(c in "0123456789abcdef" for c in value)
+
+
+def _sha256_identity(value: object) -> bool:
+    return isinstance(value, str) and value.startswith("sha256:") and _hexadecimal(value[7:], 64)
+
+
+def _timestamp(value: object) -> int:
+    """Native chrono-compatible RFC3339 UTC spelling, compared without truncation."""
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{3}|\d{6}|\d{9}))?Z", value) if isinstance(value, str) else None
+    if match is None:
+        raise AdapterProtocolError("prelaunch timestamp must be canonical RFC3339 UTC")
+    fraction = match[2] or ""
+    if fraction and (int(fraction) == 0 or (len(fraction) > 3 and fraction.endswith("000"))):
+        raise AdapterProtocolError("prelaunch timestamp precision differs from canonical chrono")
+    try:
+        parsed = datetime.strptime(match[1], "%Y-%m-%dT%H:%M:%S")
+    except ValueError as error:
+        raise AdapterProtocolError("prelaunch timestamp must be canonical RFC3339 UTC") from error
+    return calendar.timegm(parsed.timetuple()) * 1_000_000_000 + int(fraction.ljust(9, "0") or "0")
+
+
+def _utc_now() -> str:
+    seconds, nanos = divmod(time.time_ns(), 1_000_000_000)
+    basis = datetime.fromtimestamp(seconds, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    fraction = "" if nanos == 0 else (f".{nanos // 1_000_000:03}" if nanos % 1_000_000 == 0
+        else f".{nanos // 1_000:06}" if nanos % 1_000 == 0 else f".{nanos:09}")
+    return basis + fraction + "Z"
+
+
+def _bounded_identifier(value: object) -> bool:
+    return isinstance(value, str) and 0 < len(value.encode()) <= 256 and not any(ord(c) < 32 or ord(c) == 127 for c in value)
+
+
+def validate_prelaunch_closure(closure: dict) -> None:
+    fields = {"schema", "closure_digest", "binding", "closed_at", "evidence_mode", "failure_code",
+        "supervisor_attestation", "observer_source_head", "observer_runner_sha256", "state",
+        "provider_claim_absent", "backend_started", "authority_effect"}
+    if not isinstance(closure, dict) or set(closure) != fields or len(_canonical(closure)) > 32 * 1024:
+        raise AdapterProtocolError("closed prelaunch receipt schema differs")
+    binding = closure["binding"]
+    ids = {"run_id", "work_item_id", "work_attempt_id", "dispatch_occurrence_id", "adapter_process_occurrence_id"}
+    hashes = {"packet_digest", "request_digest", "request_sha256", "worker_brief_digest", "brief_sha256",
+        "backend_sha256", "dispatch_digest", "dispatch_sha256"}
+    heads = {"switchyard_owner_head", "codex_owner_head"}
+    if (not isinstance(binding, dict) or set(binding) != ids | hashes | heads
+        or any(not _bounded_identifier(binding[k]) for k in ids)
+        or any(not _sha256_identity(binding[k]) for k in hashes)
+        or any(not _hexadecimal(binding[k], 40) for k in heads)
+        or closure["schema"] != PRELAUNCH_SCHEMA or closure["state"] != "PRELAUNCH_CLOSED"
+        or closure["failure_code"] != "EXECUTABLE_CAPTURE_FAILED"
+        or closure["provider_claim_absent"] is not True or closure["backend_started"] is not False
+        or closure["authority_effect"] != "LOCAL_PRELAUNCH_CLOSURE_ONLY"
+        or not _hexadecimal(closure["observer_source_head"], 40)
+        or not _sha256_identity(closure["observer_runner_sha256"])):
+        raise AdapterProtocolError("prelaunch receipt boundary differs")
+    closed_at = _timestamp(closure["closed_at"])
+    proof = closure["supervisor_attestation"]
+    if closure["evidence_mode"] == "OBSERVED_CAPTURE_FAILURE" and proof is None:
+        pass
+    elif closure["evidence_mode"] == "SUPERVISOR_ATTESTED_PRECLAIM_FAILURE" and isinstance(proof, dict):
+        proof_fields = {"schema", "binding", "supervisor_identity", "host", "unit", "invocation_id",
+            "active_state", "result", "exit_code", "observed_at", "original_runner_sha256",
+            "unit_evidence_sha256", "failure_evidence_sha256", "boundary", "original_producer_terminated",
+            "alternate_writers_excluded", "trust_basis"}
+        if (set(proof) != proof_fields or proof["schema"] != "switchyard.prelaunch-supervisor-attestation/v1"
+            or proof["binding"] != binding or proof["active_state"] not in {"inactive", "failed"}
+            or proof["result"] != "exit-code" or type(proof["exit_code"]) is not int
+            or not 0 < proof["exit_code"] <= 2**32 - 1
+            or proof["boundary"] != "BEFORE_PROVIDER_CLAIM" or proof["original_producer_terminated"] is not True
+            or proof["alternate_writers_excluded"] is not True
+            or proof["trust_basis"] != "OWNER_ATTESTATION_NOT_INDEPENDENT_PROCESS_PROOF"
+            or not _hexadecimal(proof["invocation_id"], 32)
+            or any(not _bounded_identifier(proof[k]) for k in ("supervisor_identity", "host", "unit"))
+            or any(not _sha256_identity(proof[k]) for k in ("original_runner_sha256", "unit_evidence_sha256", "failure_evidence_sha256"))
+            or _timestamp(proof["observed_at"]) > closed_at):
+            raise AdapterProtocolError("terminal supervisor attestation differs from exact preclaim closure")
+    else:
+        raise AdapterProtocolError("unknown prelaunch evidence mode")
+    basis = {k: v for k, v in closure.items() if k != "closure_digest"}
+    if closure["closure_digest"] != digest(PRELAUNCH_DOMAIN + _canonical(basis)):
+        raise AdapterProtocolError("prelaunch closure digest mismatch")
+
+
+def _new_prelaunch_closure(request: dict, brief: bytes, backend: dict, dispatch: dict,
+                          source_head: str, proof: dict | None, closed_at: str) -> dict:
+    closure = {"schema": PRELAUNCH_SCHEMA, "binding": prelaunch_binding(request, brief, backend, dispatch),
+        "closed_at": closed_at, "evidence_mode": "OBSERVED_CAPTURE_FAILURE" if proof is None else "SUPERVISOR_ATTESTED_PRECLAIM_FAILURE",
+        "failure_code": "EXECUTABLE_CAPTURE_FAILED", "supervisor_attestation": proof,
+        "observer_source_head": source_head, "observer_runner_sha256": digest(Path(__file__).read_bytes()),
+        "state": "PRELAUNCH_CLOSED", "provider_claim_absent": True, "backend_started": False,
+        "authority_effect": "LOCAL_PRELAUNCH_CLOSURE_ONLY"}
+    closure["closure_digest"] = digest(PRELAUNCH_DOMAIN + _canonical(closure))
+    validate_prelaunch_closure(closure)
+    if _timestamp(closed_at) < _timestamp(dispatch["opened_at"]):
+        raise AdapterProtocolError("prelaunch closure precedes dispatch")
+    return closure
+
+
+def close_prelaunch(request: dict, brief: bytes, backend: dict, dispatch: dict, store: "RunStore",
+                    proof: dict, source_head: str, closed_at: str) -> dict:
+    """Owner-attested recovery only. Never infer producer death from missing custody."""
+    validate_request(request, brief)
+    validate_backend_spec(backend, request)
+    validate_dispatch(dispatch, request, backend)
+    if not isinstance(proof, dict):
+        raise AdapterProtocolError("terminal supervisor attestation required")
+    closure = _new_prelaunch_closure(request, brief, backend, dispatch, source_head, proof, closed_at)
+    return store.close_prelaunch(request, brief, backend, dispatch, closure)
+
+
 class RunStore:
     """Additive adapter custody in the existing Switchyard SQLite state file."""
     def __init__(self, path: Path | None = None, *, root_fd: int | None = None,
-                 relative: str | None = None):
+                 relative: str | None = None, existing_only: bool = False):
         self._held: HeldSqlite | None = None
         if root_fd is None:
             if path is None or relative is not None:
                 raise AdapterProtocolError("one pathname or fd-relative state location required")
-            self.db = sqlite3.connect(path)
+            self.db = sqlite3.connect(path.resolve().as_uri() + "?mode=rw", uri=True) if existing_only else sqlite3.connect(path)
         else:
             if path is not None or relative is None:
                 raise AdapterProtocolError("fd-relative state requires one relative name")
             try:
-                self._held = HeldSqlite(root_fd, relative, create=True)
+                self._held = HeldSqlite(root_fd, relative, create=not existing_only)
                 self.db = self._held.connect()
             except (FdCustodyError, OSError, sqlite3.Error) as error:
                 if self._held is not None:
@@ -305,6 +487,8 @@ class RunStore:
                     self._held = None
                 raise AdapterProtocolError("fd-relative provider state refused") from error
         try:
+            if existing_only and self.db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='provider_runs'").fetchone() is None:
+                raise AdapterProtocolError("recovery requires an existing provider custody table")
             self.db.execute("PRAGMA journal_mode=WAL")
             self.db.execute("PRAGMA synchronous=FULL")
             self.db.execute("CREATE TABLE IF NOT EXISTS provider_runs (dispatch TEXT PRIMARY KEY, request BLOB NOT NULL, brief BLOB NOT NULL, backend BLOB NOT NULL, record BLOB NOT NULL)")
@@ -366,6 +550,37 @@ class RunStore:
             raise AdapterProtocolError("dispatch custody substitution")
         return record
 
+    def close_prelaunch(self, request: dict, brief: bytes, backend: dict, dispatch: dict, closure: dict) -> dict:
+        validate_prelaunch_closure(closure)
+        if closure["binding"] != prelaunch_binding(request, brief, backend, dispatch):
+            raise AdapterProtocolError("prelaunch closure input binding differs")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            prior = self.lookup(request, brief, backend, dispatch)
+            if prior is not None:
+                if prior.get("state") != "PRELAUNCH_CLOSED" or prior.get("prelaunch_closure") != closure:
+                    raise AdapterProtocolError("existing provider claim or conflicting prelaunch closure")
+                self.db.commit()
+                return closure
+            # The existing exact-dispatch slot also fences older runners: their
+            # lookup/claim returns a retained record and never starts a backend.
+            record = {"schema": "switchyard.provider-run/v1", "state": "PRELAUNCH_CLOSED",
+                "dispatch_occurrence_id": request["dispatch_occurrence_id"],
+                "work_attempt_id": request["work_attempt_id"], "request_digest": request["request_digest"],
+                "dispatch_record": dispatch, "backend": backend, "provider_admission": None,
+                "thread_id": None, "turn_id": None, "provider_execution": None,
+                "worker_output": None, "usage": None, "cost": None,
+                "acceptance_state": "LOCAL_PRELAUNCH_CLOSURE_ONLY", "prelaunch_closure": closure,
+                "approval_response_sent": False, "semantic_retry": False,
+                "authority_effect": "LOCAL_PRELAUNCH_CLOSURE_ONLY"}
+            self.db.execute("INSERT INTO provider_runs VALUES (?,?,?,?,?)", (
+                request["dispatch_occurrence_id"], _canonical(request), brief, _canonical(backend), _canonical(record)))
+            self.db.commit()
+            return closure
+        except BaseException:
+            self.db.rollback()
+            raise
+
     def update(self, record: dict) -> None:
         self.db.execute("UPDATE provider_runs SET record=? WHERE dispatch=?", (_canonical(record), record["dispatch_occurrence_id"]))
         self.db.commit()
@@ -398,13 +613,28 @@ def _read_store(path: Path | str, query: str, values: tuple, *, root_fd: int | N
 
 def inspect(path: Path | str, dispatch: str, *, root_fd: int | None = None) -> dict:
     # Does not open a backend, initialize a missing store, or mutate existing custody.
-    row = _read_store(path, "SELECT record FROM provider_runs WHERE dispatch=?", (dispatch,), root_fd=root_fd)
+    row = _read_store(path, "SELECT record,request,brief,backend FROM provider_runs WHERE dispatch=?", (dispatch,), root_fd=root_fd)
     if row is None:
         raise AdapterProtocolError("unknown dispatch")
     record = json.loads(row[0])
     if record["provider_admission"] is not None:
-        replay_snapshot(record["provider_admission"])
+        request = json.loads(row[1]); backend = json.loads(row[3])
+        validate_request(request, row[2])
+        validate_dispatch(record["dispatch_record"], request, backend)
+        replay_snapshot(record["provider_admission"], capture_contract=capture_contract_for_request(request))
     return record
+
+
+def inspect_prelaunch(path: Path | str, dispatch: str, *, root_fd: int | None = None) -> dict:
+    record = inspect(path, dispatch, root_fd=root_fd)
+    if record.get("state") != "PRELAUNCH_CLOSED":
+        raise AdapterProtocolError("dispatch is not a retained prelaunch closure")
+    closure = record.get("prelaunch_closure")
+    validate_prelaunch_closure(closure)
+    row = _read_store(path, "SELECT request,brief,backend FROM provider_runs WHERE dispatch=?", (dispatch,), root_fd=root_fd)
+    if row is None or closure["binding"] != prelaunch_binding(json.loads(row[0]), row[1], json.loads(row[2]), record["dispatch_record"]):
+        raise AdapterProtocolError("retained prelaunch closure input binding differs")
+    return closure
 
 
 def reconcile(path: Path | str, dispatch: str, *, root_fd: int | None = None,
@@ -463,10 +693,18 @@ def run(request: dict, brief: bytes, backend: dict, store: RunStore, *, dispatch
     prior = store.lookup(request, brief, backend, dispatch_record)
     if prior is not None:
         return prior
+    preflight_request(request, brief, backend)
     workspace = Path(request["workspace_identity"])
     if not workspace.is_absolute() or not workspace.is_dir():
         raise AdapterProtocolError("enrolled workspace is not an existing absolute directory")
-    command, executable_fd = verify_backend(backend, request)
+    try:
+        command, executable_fd = verify_backend(backend, request)
+    except ExecutableCaptureError:
+        closed_at = _utc_now()
+        closure = _new_prelaunch_closure(request, brief, backend, dispatch_record,
+            request["switchyard_owner_head"], None, closed_at)
+        store.close_prelaunch(request, brief, backend, dispatch_record, closure)
+        return store.lookup(request, brief, backend, dispatch_record)
     try:
         record, fresh = store.claim(request, brief, backend, dispatch_record)
     except BaseException:
@@ -478,6 +716,7 @@ def run(request: dict, brief: bytes, backend: dict, store: RunStore, *, dispatch
     estate = dispatch_record["app_server_session_identity"]
     client = client_factory(command, request_timeout=min(30, request["timeout_seconds"]),
         environment={"CODEX_HOME": backend["codex_home"]}, enable_ordered_acquisition=True,
+        capture_contract=capture_contract_for_request(request),
         adapter_process_occurrence_id=record["process_occurrence"], app_server_session_identity=estate,
         pass_fds=(executable_fd,))
     mapper = None
@@ -544,9 +783,7 @@ def run(request: dict, brief: bytes, backend: dict, store: RunStore, *, dispatch
             "source": "CODEX_APP_SERVER_THREAD_START"}
         record["thread_id"] = thread["thread"]["id"]
         store.update(record)
-        prompt = "Perform only the bounded work in this Nightshift worker brief. Do not spawn agents, change provider/model, or perform protected effects. Report evidence and uncertainty; your answer is not qualification.\n" + brief.decode()
-        turn = client.request("turn/start", {"threadId": record["thread_id"], "model": backend["model"],
-            "input": [{"type": "text", "text": prompt}]})
+        turn = client.request("turn/start", bounded_turn_start(record["thread_id"], backend, brief))
         record["turn_id"] = turn["turn"]["id"]
         store.update(record)
         mapper = ProviderAdmissionMapper(seal_binding({
@@ -555,7 +792,8 @@ def run(request: dict, brief: bytes, backend: dict, store: RunStore, *, dispatch
             "thread_id": record["thread_id"], "turn_id": record["turn_id"], "provider": backend["provider"],
             "model": backend["model"], "codex_source_head": backend["codex_source_head"],
             "executable_kind": "CAMPAIGN_CODEX_BUILD", "app_server_executable_identity": backend["executable"],
-            "app_server_executable_sha256": backend["executable_sha256"], "internal_provider_request_retries": 0}))
+            "app_server_executable_sha256": backend["executable_sha256"], "internal_provider_request_retries": 0}),
+            capture_contract=capture_contract_for_request(request))
         while time.monotonic() < deadline:
             drain()
             if mapper.mechanism_state in {"PROVIDER_COMPLETED", "PARKED_NOT_ADMITTED", "WAITING_APPROVAL", "ADMISSION_INDETERMINATE", "POST_ADMISSION_INTERRUPTED"}:
@@ -594,21 +832,42 @@ def run(request: dict, brief: bytes, backend: dict, store: RunStore, *, dispatch
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--state", required=True)
+    parser.add_argument("--state")
     parser.add_argument("--root-fd", type=int,
         help="inherited directory descriptor; state and run inputs become strict relative names")
     sub = parser.add_subparsers(dest="command", required=True)
+    preflight = sub.add_parser("preflight-request")
+    for name in ("request", "brief", "backend"):
+        preflight.add_argument("--" + name, type=Path, required=True)
     start = sub.add_parser("run")
     start.add_argument("--source-provenance", type=Path, required=True)
     for name in ("request", "brief", "backend", "dispatch-record"):
         start.add_argument("--" + name, type=Path, required=True)
-    for name in ("inspect", "reconcile"):
+    close = sub.add_parser("close-prelaunch", help="retain exact preclaim closure from trusted supervisor testimony; never launches")
+    close.add_argument("--source-provenance", type=Path, required=True)
+    close.add_argument("--source-head", required=True, help="explicitly enrolled recovery source revision, independent of the original request")
+    close.add_argument("--supervisor-attestation", type=Path, required=True)
+    close.add_argument("--closed-at", required=True)
+    for name in ("request", "brief", "backend", "dispatch-record"):
+        close.add_argument("--" + name, type=Path, required=True)
+    for name in ("inspect", "inspect-prelaunch", "reconcile"):
         read = sub.add_parser(name)
         read.add_argument("--dispatch", required=True)
     args = parser.parse_args()
+    if args.command == "preflight-request":
+        if args.root_fd is not None or args.state is not None:
+            parser.error("preflight-request has no store or root-fd surface")
+        request, _ = load(args.request); backend, _ = load(args.backend)
+        brief = _read_bounded_regular(args.brief, MAXIMUM_BRIEF_BYTES, "worker brief")
+        print(_canonical(preflight_request(request, brief, backend)).decode())
+        return
+    if args.state is None:
+        parser.error("--state is required for durable operations")
     state: Path | str = args.state if args.root_fd is not None else Path(args.state)
     if args.command == "inspect":
         result = inspect(state, args.dispatch, root_fd=args.root_fd)
+    elif args.command == "inspect-prelaunch":
+        result = inspect_prelaunch(state, args.dispatch, root_fd=args.root_fd)
     elif args.command == "reconcile":
         result = reconcile(state, args.dispatch, root_fd=args.root_fd)
     else:
@@ -616,7 +875,7 @@ def main() -> None:
             request, _ = load(args.request); backend, _ = load(args.backend)
             dispatch, dispatch_raw = load(args.dispatch_record)
             brief = _read_bounded_regular(args.brief, MAXIMUM_BRIEF_BYTES, "worker brief")
-            store = RunStore(Path(args.state))
+            store = RunStore(Path(args.state), existing_only=args.command == "close-prelaunch")
         else:
             request, _ = load_at(args.root_fd, str(args.request)); backend, _ = load_at(args.root_fd, str(args.backend))
             dispatch, dispatch_raw = load_at(args.root_fd, str(args.dispatch_record))
@@ -624,13 +883,25 @@ def main() -> None:
                 brief = read_bounded_regular_at(args.root_fd, str(args.brief), MAXIMUM_BRIEF_BYTES, "worker brief")
             except (FdCustodyError, OSError) as error:
                 raise AdapterProtocolError("fd-relative worker brief refused") from error
-            store = RunStore(root_fd=args.root_fd, relative=args.state)
+            store = RunStore(root_fd=args.root_fd, relative=args.state, existing_only=args.command == "close-prelaunch")
         if _canonical(dispatch) != dispatch_raw:
             raise AdapterProtocolError("dispatch record must be exact canonical owner output")
         try:
-            result = run(request, brief, backend, store, dispatch_record=dispatch,
-                         source_provenance=args.source_provenance,
-                         source_provenance_root_fd=args.root_fd)
+            if args.command == "close-prelaunch":
+                # Recovery is enrolled separately; do not rewrite the original
+                # request's source pin or require a fabricated provider snapshot.
+                verify_runner_provenance(args.source_provenance,
+                    {"switchyard_owner_head": args.source_head}, root_fd=args.root_fd)
+                proof, proof_raw = (load(args.supervisor_attestation, 32 * 1024) if args.root_fd is None
+                    else load_at(args.root_fd, str(args.supervisor_attestation), 32 * 1024))
+                if _canonical(proof) != proof_raw.removesuffix(b"\n"):
+                    raise AdapterProtocolError("supervisor attestation must be canonical")
+                result = close_prelaunch(request, brief, backend, dispatch, store, proof,
+                    args.source_head, args.closed_at)
+            else:
+                result = run(request, brief, backend, store, dispatch_record=dispatch,
+                             source_provenance=args.source_provenance,
+                             source_provenance_root_fd=args.root_fd)
         finally:
             store.close()
     print(_canonical(result).decode())

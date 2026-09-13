@@ -114,11 +114,11 @@ def _bounded_int(field: str, value: Any, minimum: int, maximum: int) -> int:
     return value
 
 
-def _raw_custody(message: ServerMessage) -> dict[str, Any]:
+def _raw_custody(message: ServerMessage, maximum: int = MAXIMUM_RAW_EVIDENCE_BYTES) -> dict[str, Any]:
     raw = message.raw_bytes
     if raw is None:
         raise ProviderAdmissionError("exact App Server wire bytes are required")
-    if not 1 <= len(raw) <= MAXIMUM_RAW_EVIDENCE_BYTES:
+    if not 1 <= len(raw) <= maximum:
         raise ProviderAdmissionError("App Server evidence exceeds exact byte bound")
     if not raw.endswith(b"\n"):
         raise ProviderAdmissionError("exact App Server wire bytes lack line terminator")
@@ -129,12 +129,12 @@ def _raw_custody(message: ServerMessage) -> dict[str, Any]:
     if parsed != message.raw:
         raise ProviderAdmissionError("retained App Server wire bytes differ from parsed message")
     return _raw_bytes_custody(
-        raw, "EXACT_WIRE_BYTES_INCLUDING_LINE_TERMINATOR"
+        raw, "EXACT_WIRE_BYTES_INCLUDING_LINE_TERMINATOR", maximum
     )
 
 
-def _raw_bytes_custody(raw: bytes, representation: str) -> dict[str, Any]:
-    if not 1 <= len(raw) <= MAXIMUM_RAW_EVIDENCE_BYTES:
+def _raw_bytes_custody(raw: bytes, representation: str, maximum: int = MAXIMUM_RAW_EVIDENCE_BYTES) -> dict[str, Any]:
+    if not 1 <= len(raw) <= maximum:
         raise ProviderAdmissionError("App Server evidence exceeds exact byte bound")
     if representation not in {
         "EXACT_WIRE_BYTES_INCLUDING_LINE_TERMINATOR",
@@ -227,8 +227,14 @@ class ProviderAdmissionMapper:
     choose fallback, start a second dispatch, or answer approval requests.
     """
 
-    def __init__(self, binding: dict[str, Any], *, allow_unordered_fixture: bool = False):
+    def __init__(self, binding: dict[str, Any], *, allow_unordered_fixture: bool = False,
+                 capture_contract: str = "LEGACY_V1"):
         validate_binding(binding)
+        from .appserver import client_request_byte_bound
+        client_request_byte_bound(None, capture_contract)
+        if capture_contract == "BOUNDED_TURN_V1" and binding["codex_source_head"] != FINAL_CODEX_SOURCE_HEAD:
+            raise ProviderAdmissionError("bounded capture requires the final supported source")
+        self._capture_contract = capture_contract
         self._binding = copy.deepcopy(binding)
         self._allow_unordered_fixture = allow_unordered_fixture
         self._records: list[dict[str, Any]] = []
@@ -495,7 +501,9 @@ class ProviderAdmissionMapper:
     def _client_request(
         self, request_method: str, message: ServerMessage
     ) -> dict[str, Any]:
-        raw = _raw_custody(message)
+        from .appserver import client_request_byte_bound
+        maximum = client_request_byte_bound(request_method, self._capture_contract)
+        raw = _raw_custody(message, maximum)
         request = message.raw
         request_id = request.get("id")
         try:
@@ -1073,11 +1081,12 @@ class ProviderAdmissionMapper:
 
     @classmethod
     def replay(
-        cls, binding: dict[str, Any], retained_records: list[dict[str, Any]]
+        cls, binding: dict[str, Any], retained_records: list[dict[str, Any]], *,
+        capture_contract: str = "LEGACY_V1"
     ) -> "ProviderAdmissionMapper":
         if not isinstance(retained_records, list) or len(retained_records) > MAXIMUM_RECORDS:
             raise ProviderAdmissionError("invalid retained provider-admission record set")
-        mapper = cls(binding, allow_unordered_fixture=True)
+        mapper = cls(binding, allow_unordered_fixture=True, capture_contract=capture_contract)
         for expected in retained_records:
             if not isinstance(expected, dict):
                 raise ProviderAdmissionError("retained provider-admission record is not an object")
@@ -1173,7 +1182,7 @@ class ProviderAdmissionMapper:
 
 
 
-def replay_snapshot(snapshot: dict[str, Any]) -> ProviderAdmissionMapper:
+def replay_snapshot(snapshot: dict[str, Any], *, capture_contract: str = "LEGACY_V1") -> ProviderAdmissionMapper:
     fields = {
         "schema", "snapshot_digest", "binding", "admission_disposition",
         "mechanism_state", "provider_execution_identity", "acquisition_cut", "records",
@@ -1186,7 +1195,7 @@ def replay_snapshot(snapshot: dict[str, Any]) -> ProviderAdmissionMapper:
         _SNAPSHOT_DOMAIN, snapshot, "snapshot_digest"
     ):
         raise ProviderAdmissionError("provider-admission snapshot digest mismatch")
-    mapper = ProviderAdmissionMapper.replay(snapshot["binding"], snapshot["records"])
+    mapper = ProviderAdmissionMapper.replay(snapshot["binding"], snapshot["records"], capture_contract=capture_contract)
     if mapper.snapshot() != snapshot:
         raise ProviderAdmissionError("provider-admission snapshot state substitution")
     return mapper

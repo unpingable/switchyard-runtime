@@ -14,6 +14,7 @@ if(git('rev-parse','HEAD').toString().trim()!==revision)throw Error('Revision mu
 const plain=['src/switchyard/__init__.py','src/switchyard/direct_api.py',
   'src/switchyard/nightshift_adapter.py','src/switchyard/appserver.py','src/switchyard/config.py',
   'src/switchyard/fd_custody.py','src/switchyard/provider_admission.py','src/switchyard/provider_runner.py',
+  'src/switchyard/review_verifier.py',
   'src/switchyard/_vendor/__init__.py','src/switchyard/_vendor/rfc8785/__init__.py',
   'src/switchyard/_vendor/rfc8785/_impl.py','src/switchyard/_vendor/rfc8785/LICENSE',
   'src/switchyard/_vendor/rfc8785/VENDOR.md','src/switchyard/_vendor/rfc8785/py.typed',
@@ -22,7 +23,12 @@ const plain=['src/switchyard/__init__.py','src/switchyard/direct_api.py',
   'src/switchyard/schemas/switchyard.codex-provider-admission.v1.schema.json',
   'src/switchyard/schemas/switchyard.codex-provider-admission.beta.v1.schema.json',
   'src/switchyard/schemas/switchyard.codex-provider-admission.beta-final.v1.schema.json',
-  'tests/test_direct_api.py','tests/test_runtime_packaging.py','docs/DIRECT_API_OPENROUTER.md'];
+  'src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn.v1.schema.json',
+  'tests/test_direct_api.py','tests/test_runtime_packaging.py','tests/test_review_verifier_export.py',
+  'tests/test_prelaunch_contract.py','tests/fixtures/prelaunch-vector.json',
+  'tests/test_size_controls.py','tests/fixtures/bounded-turn-synthetic.json',
+  'docs/BOUNDED_PROVIDER_CUSTODY_V1.md',
+  'docs/DIRECT_API_OPENROUTER.md','docs/PROVIDER_PRELAUNCH_CLOSURE_V1.md'];
 const mapping=Object.fromEntries(plain.map(path=>[path,path]));
 for(const name of ['.gitignore','pyproject.toml','README.md','AGENTS.md','NOTICE','LICENSE'])
   mapping[name]='packaging/runtime/'+name;

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "switchyard-codex-foreman"
-version = "0.1.0"
+version = "0.2.0"
 description = "Source distribution of Switchyard's bounded direct provider runtime"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
@@ -13,6 +13,7 @@ dependencies = ["jsonschema[format]>=4.10"]
 [project.scripts]
 switchyard-direct-api = "switchyard.direct_api:main"
 switchyard-provider-runner = "switchyard.provider_runner:main"
+switchyard-review-verifier = "switchyard.review_verifier:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
