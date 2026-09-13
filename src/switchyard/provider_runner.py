@@ -424,7 +424,7 @@ def validate_prelaunch_closure(closure: dict) -> None:
         or any(not _sha256_identity(binding[k]) for k in hashes)
         or any(not _hexadecimal(binding[k], 40) for k in heads)
         or closure["schema"] != PRELAUNCH_SCHEMA or closure["state"] != "PRELAUNCH_CLOSED"
-        or closure["failure_code"] != "EXECUTABLE_CAPTURE_FAILED"
+        or closure["failure_code"] not in {"EXECUTABLE_CAPTURE_FAILED", "REQUEST_PREFLIGHT_FAILED"}
         or closure["provider_claim_absent"] is not True or closure["backend_started"] is not False
         or closure["authority_effect"] != "LOCAL_PRELAUNCH_CLOSURE_ONLY"
         or not _hexadecimal(closure["observer_source_head"], 40)
@@ -432,7 +432,8 @@ def validate_prelaunch_closure(closure: dict) -> None:
         raise AdapterProtocolError("prelaunch receipt boundary differs")
     closed_at = _timestamp(closure["closed_at"])
     proof = closure["supervisor_attestation"]
-    if closure["evidence_mode"] == "OBSERVED_CAPTURE_FAILURE" and proof is None:
+    if (closure["failure_code"] == "EXECUTABLE_CAPTURE_FAILED"
+        and closure["evidence_mode"] == "OBSERVED_CAPTURE_FAILURE" and proof is None):
         pass
     elif closure["evidence_mode"] == "SUPERVISOR_ATTESTED_PRECLAIM_FAILURE" and isinstance(proof, dict):
         proof_fields = {"schema", "binding", "supervisor_identity", "host", "unit", "invocation_id",
@@ -459,10 +460,11 @@ def validate_prelaunch_closure(closure: dict) -> None:
 
 
 def _new_prelaunch_closure(request: dict, brief: bytes, backend: dict, dispatch: dict,
-                          source_head: str, proof: dict | None, closed_at: str) -> dict:
+                          source_head: str, proof: dict | None, closed_at: str,
+                          failure_code: str = "EXECUTABLE_CAPTURE_FAILED") -> dict:
     closure = {"schema": PRELAUNCH_SCHEMA, "binding": prelaunch_binding(request, brief, backend, dispatch),
         "closed_at": closed_at, "evidence_mode": "OBSERVED_CAPTURE_FAILURE" if proof is None else "SUPERVISOR_ATTESTED_PRECLAIM_FAILURE",
-        "failure_code": "EXECUTABLE_CAPTURE_FAILED", "supervisor_attestation": proof,
+        "failure_code": failure_code, "supervisor_attestation": proof,
         "observer_source_head": source_head, "observer_runner_sha256": digest(Path(__file__).read_bytes()),
         "state": "PRELAUNCH_CLOSED", "provider_claim_absent": True, "backend_started": False,
         "authority_effect": "LOCAL_PRELAUNCH_CLOSURE_ONLY"}
@@ -474,32 +476,65 @@ def _new_prelaunch_closure(request: dict, brief: bytes, backend: dict, dispatch:
 
 
 def close_prelaunch(request: dict, brief: bytes, backend: dict, dispatch: dict, store: "RunStore",
-                    proof: dict, source_head: str, closed_at: str) -> dict:
+                    proof: dict, source_head: str, closed_at: str,
+                    failure_code: str = "EXECUTABLE_CAPTURE_FAILED") -> dict:
     """Owner-attested recovery only. Never infer producer death from missing custody."""
+    closure = prepare_prelaunch_closure(request, brief, backend, dispatch, proof, source_head, closed_at,
+        failure_code)
+    return store.close_prelaunch(request, brief, backend, dispatch, closure)
+
+
+def prepare_prelaunch_closure(request: dict, brief: bytes, backend: dict, dispatch: dict,
+                              proof: dict, source_head: str, closed_at: str,
+                              failure_code: str = "EXECUTABLE_CAPTURE_FAILED") -> dict:
+    """Validate an exact closure before allocating or mutating adapter custody."""
     validate_request(request, brief)
     validate_backend_spec(backend, request)
     validate_dispatch(dispatch, request, backend)
     if not isinstance(proof, dict):
         raise AdapterProtocolError("terminal supervisor attestation required")
-    closure = _new_prelaunch_closure(request, brief, backend, dispatch, source_head, proof, closed_at)
-    return store.close_prelaunch(request, brief, backend, dispatch, closure)
+    return _new_prelaunch_closure(request, brief, backend, dispatch, source_head, proof, closed_at,
+        failure_code)
+
+
+class PrelaunchStoreExists(AdapterProtocolError):
+    """Exclusive prelaunch-store initialization observed an existing pathname."""
 
 
 class RunStore:
     """Additive adapter custody in the existing Switchyard SQLite state file."""
     def __init__(self, path: Path | None = None, *, root_fd: int | None = None,
-                 relative: str | None = None, existing_only: bool = False):
+                 relative: str | None = None, existing_only: bool = False,
+                 exclusive_create: bool = False):
+        if existing_only and exclusive_create:
+            raise AdapterProtocolError("exclusive provider state creation conflicts with existing-only custody")
         self._held: HeldSqlite | None = None
         if root_fd is None:
             if path is None or relative is not None:
                 raise AdapterProtocolError("one pathname or fd-relative state location required")
-            self.db = sqlite3.connect(path.resolve().as_uri() + "?mode=rw", uri=True) if existing_only else sqlite3.connect(path)
+            if existing_only:
+                self.db = sqlite3.connect(path.resolve().as_uri() + "?mode=rw", uri=True)
+            elif exclusive_create:
+                descriptor = None
+                try:
+                    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+                except FileExistsError as error:
+                    raise PrelaunchStoreExists("prelaunch provider state already exists") from error
+                try:
+                    self.db = sqlite3.connect(path)
+                finally:
+                    os.close(descriptor)
+            else:
+                self.db = sqlite3.connect(path)
         else:
             if path is not None or relative is None:
                 raise AdapterProtocolError("fd-relative state requires one relative name")
             try:
-                self._held = HeldSqlite(root_fd, relative, create=not existing_only)
+                self._held = HeldSqlite(root_fd, relative, create=not existing_only,
+                    exclusive_create=exclusive_create)
                 self.db = self._held.connect()
+            except FileExistsError as error:
+                raise PrelaunchStoreExists("prelaunch provider state already exists") from error
             except (FdCustodyError, OSError, sqlite3.Error) as error:
                 if self._held is not None:
                     self._held.close()
@@ -867,6 +902,8 @@ def main() -> None:
     close.add_argument("--source-head", required=True, help="explicitly enrolled recovery source revision, independent of the original request")
     close.add_argument("--supervisor-attestation", type=Path, required=True)
     close.add_argument("--closed-at", required=True)
+    close.add_argument("--failure-code", choices=("EXECUTABLE_CAPTURE_FAILED", "REQUEST_PREFLIGHT_FAILED"),
+        default="EXECUTABLE_CAPTURE_FAILED")
     for name in ("request", "brief", "backend", "dispatch-record"):
         close.add_argument("--" + name, type=Path, required=True)
     for name in ("inspect", "inspect-prelaunch", "reconcile"):
@@ -894,7 +931,6 @@ def main() -> None:
             request, _ = load(args.request); backend, _ = load(args.backend)
             dispatch, dispatch_raw = load(args.dispatch_record)
             brief = _read_bounded_regular(args.brief, MAXIMUM_BRIEF_BYTES, "worker brief")
-            store = RunStore(Path(args.state), existing_only=args.command == "close-prelaunch")
         else:
             request, _ = load_at(args.root_fd, str(args.request)); backend, _ = load_at(args.root_fd, str(args.backend))
             dispatch, dispatch_raw = load_at(args.root_fd, str(args.dispatch_record))
@@ -902,21 +938,41 @@ def main() -> None:
                 brief = read_bounded_regular_at(args.root_fd, str(args.brief), MAXIMUM_BRIEF_BYTES, "worker brief")
             except (FdCustodyError, OSError) as error:
                 raise AdapterProtocolError("fd-relative worker brief refused") from error
-            store = RunStore(root_fd=args.root_fd, relative=args.state, existing_only=args.command == "close-prelaunch")
         if _canonical(dispatch) != dispatch_raw:
             raise AdapterProtocolError("dispatch record must be exact canonical owner output")
+        closure = None
+        if args.command == "close-prelaunch":
+            # Recovery is enrolled separately; do not rewrite the original
+            # request's source pin or require a fabricated provider snapshot.
+            # All exact records validate before an absent closure store exists.
+            verify_runner_provenance(args.source_provenance,
+                {"switchyard_owner_head": args.source_head}, root_fd=args.root_fd)
+            proof, proof_raw = (load(args.supervisor_attestation, 32 * 1024) if args.root_fd is None
+                else load_at(args.root_fd, str(args.supervisor_attestation), 32 * 1024))
+            if _canonical(proof) != proof_raw.removesuffix(b"\n"):
+                raise AdapterProtocolError("supervisor attestation must be canonical")
+            closure = prepare_prelaunch_closure(request, brief, backend, dispatch, proof,
+                args.source_head, args.closed_at, args.failure_code)
+        if args.root_fd is None:
+            if args.command == "close-prelaunch" and args.failure_code == "REQUEST_PREFLIGHT_FAILED":
+                try:
+                    store = RunStore(Path(args.state), exclusive_create=True)
+                except PrelaunchStoreExists:
+                    store = RunStore(Path(args.state), existing_only=True)
+            else:
+                store = RunStore(Path(args.state), existing_only=args.command == "close-prelaunch")
+        else:
+            if args.command == "close-prelaunch" and args.failure_code == "REQUEST_PREFLIGHT_FAILED":
+                try:
+                    store = RunStore(root_fd=args.root_fd, relative=args.state, exclusive_create=True)
+                except PrelaunchStoreExists:
+                    store = RunStore(root_fd=args.root_fd, relative=args.state, existing_only=True)
+            else:
+                store = RunStore(root_fd=args.root_fd, relative=args.state,
+                    existing_only=args.command == "close-prelaunch")
         try:
             if args.command == "close-prelaunch":
-                # Recovery is enrolled separately; do not rewrite the original
-                # request's source pin or require a fabricated provider snapshot.
-                verify_runner_provenance(args.source_provenance,
-                    {"switchyard_owner_head": args.source_head}, root_fd=args.root_fd)
-                proof, proof_raw = (load(args.supervisor_attestation, 32 * 1024) if args.root_fd is None
-                    else load_at(args.root_fd, str(args.supervisor_attestation), 32 * 1024))
-                if _canonical(proof) != proof_raw.removesuffix(b"\n"):
-                    raise AdapterProtocolError("supervisor attestation must be canonical")
-                result = close_prelaunch(request, brief, backend, dispatch, store, proof,
-                    args.source_head, args.closed_at)
+                result = store.close_prelaunch(request, brief, backend, dispatch, closure)
             else:
                 result = run(request, brief, backend, store, dispatch_record=dispatch,
                              source_provenance=args.source_provenance,

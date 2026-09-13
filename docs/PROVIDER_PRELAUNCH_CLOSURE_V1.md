@@ -1,7 +1,10 @@
 # Local pre-launch closure V1
 
-This bounded recovery closes one exact prepared provider dispatch after local
-executable capture failed before Switchyard claimed or started the backend.
+This bounded recovery closes one exact prepared provider dispatch after a local
+failure before Switchyard claimed or started the backend. `EXECUTABLE_CAPTURE_FAILED`
+records a runner-side executable capture failure. The additive
+`REQUEST_PREFLIGHT_FAILED` reason records a request-preflight failure only from
+terminal owner testimony at that same boundary.
 It creates no worker result, provider admission, model response, retry authority,
 or replacement request.
 
@@ -28,8 +31,11 @@ Its fields are `schema`, `closure_digest`, `binding`, `closed_at`,
 `evidence_mode`, `failure_code`, `supervisor_attestation`,
 `observer_source_head`, `observer_runner_sha256`, `state`,
 `provider_claim_absent`, `backend_started`, and `authority_effect`.
-The fixed values are `EXECUTABLE_CAPTURE_FAILED`, `PRELAUNCH_CLOSED`,
-true, false, and `LOCAL_PRELAUNCH_CLOSURE_ONLY`, respectively.
+The failure-code enum is `EXECUTABLE_CAPTURE_FAILED` or
+`REQUEST_PREFLIGHT_FAILED`; the remaining fixed values are `PRELAUNCH_CLOSED`,
+true, false, and `LOCAL_PRELAUNCH_CLOSURE_ONLY`, respectively. The latter
+reason requires `SUPERVISOR_ATTESTED_PRECLAIM_FAILURE`; observed-capture mode
+is limited to the runner-side executable-capture reason.
 The closure digest is SHA-256 over
 `switchyard.provider-prelaunch-closure.digest/v1\0` plus RFC 8785 bytes
 with the `closure_digest` member omitted.
@@ -67,8 +73,15 @@ thread, turn, response, credential, or worker-output fields.
 ## Native recovery sequence
 
 Inspect and reconcile the original producer and retained inputs first. An
-uncertain invocation, alternate writer, missing/unknown store, existing provider
-claim, wrong binding, or conflicting closure must refuse.
+uncertain invocation, alternate writer, existing provider claim, wrong binding,
+or conflicting closure must refuse. `EXECUTABLE_CAPTURE_FAILED` requires the
+original provider-custody store. For a `REQUEST_PREFLIGHT_FAILED` closure only,
+an absent adapter store may be initialized solely to retain the exact closure:
+the required owner attestation still binds `BEFORE_PROVIDER_CLAIM`, and the new
+store contains the closure rather than a provider claim. Switchyard validates
+the canonical inputs, enrolled recovery provenance, and exact attestation before
+that allocation, then uses exclusive creation; a concurrently present pathname
+is reopened existing-only and unknown custody refuses.
 
 Using an explicitly enrolled recovery source export:
 
@@ -77,7 +90,7 @@ python3 -m switchyard.provider_runner --state ORIGINAL_ADAPTER_DB close-prelaunc
   --request ORIGINAL_REQUEST --brief ORIGINAL_BRIEF --backend ORIGINAL_BACKEND \
   --dispatch-record ORIGINAL_DISPATCH --supervisor-attestation OWNER_ATTESTATION \
   --source-provenance RECOVERY_SOURCE_PROVENANCE --source-head RECOVERY_FULL_SHA \
-  --closed-at EXACT_CLOSURE_TIME
+  --closed-at EXACT_CLOSURE_TIME --failure-code REQUEST_PREFLIGHT_FAILED
 python3 -m switchyard.provider_runner --state ORIGINAL_ADAPTER_DB inspect-prelaunch \
   --dispatch ORIGINAL_DISPATCH_ID
 nightshift-foreman accept-prelaunch-closure --db ORIGINAL_FOREMAN_DB \

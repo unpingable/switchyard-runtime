@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 
@@ -9,6 +10,7 @@ import pytest
 
 from switchyard import provider_runner as runner
 from switchyard.nightshift_adapter import AdapterProtocolError
+from test_prelaunch_recovery import NOW, SOURCE_HEAD, fixture
 
 
 def vector():
@@ -31,6 +33,33 @@ def test_prelaunch_public_contract_refuses_uncertain_owner_attestation(field, re
         {k: v for k, v in value.items() if k != "closure_digest"}))
     with pytest.raises(AdapterProtocolError):
         runner.validate_prelaunch_closure(value)
+
+
+def test_request_preflight_public_contract_requires_preclaim_owner_testimony(tmp_path):
+    request, brief, backend, dispatch, proof = fixture(tmp_path)
+    closure = runner._new_prelaunch_closure(request, brief, backend, dispatch, SOURCE_HEAD, proof, NOW,
+        "REQUEST_PREFLIGHT_FAILED")
+    runner.validate_prelaunch_closure(closure)
+    closure["evidence_mode"] = "OBSERVED_CAPTURE_FAILURE"
+    closure["supervisor_attestation"] = None
+    closure["closure_digest"] = runner.digest(runner.PRELAUNCH_DOMAIN + runner._canonical(
+        {k: v for k, v in closure.items() if k != "closure_digest"}))
+    with pytest.raises(AdapterProtocolError):
+        runner.validate_prelaunch_closure(closure)
+
+
+def test_request_preflight_public_contract_refuses_existing_claim_or_unknown_store(tmp_path):
+    request, brief, backend, dispatch, proof = fixture(tmp_path)
+    claimed = runner.RunStore(tmp_path / "claimed.sqlite")
+    claimed.claim(request, brief, backend, dispatch)
+    with pytest.raises(AdapterProtocolError, match="existing provider claim"):
+        runner.close_prelaunch(request, brief, backend, dispatch, claimed, proof, SOURCE_HEAD, NOW,
+            "REQUEST_PREFLIGHT_FAILED")
+    claimed.close()
+    unknown = tmp_path / "unknown.sqlite"
+    sqlite3.connect(unknown).close()
+    with pytest.raises(AdapterProtocolError, match="existing provider custody"):
+        runner.RunStore(unknown, existing_only=True)
 
 
 def test_prelaunch_native_cli_exposes_closed_recovery_without_opening_store(tmp_path):

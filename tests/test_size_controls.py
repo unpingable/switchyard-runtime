@@ -219,8 +219,25 @@ def test_native_preflight_has_no_state_surface_and_preserves_inputs(tmp_path):
     assert report['provider_contact'] is False
     assert {p.name: p.read_bytes() for p in tmp_path.glob('*.json')} == before
     assert not list(tmp_path.glob('*.sqlite'))
-    # An older accepted schema remains capped at 16KiB on the new runner.
+    # The source-shaped echo schema is a closed additional member of the same
+    # V3 request contract. This generic fixture contains no campaign material.
     from switchyard.provider_runner import V3_DOMAIN
+    echo_schema = ROOT / 'src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json'
+    request['switchyard_schema_sha256'] = digest(echo_schema.read_bytes())
+    request['request_digest'] = digest(V3_DOMAIN + _canonical({k: v for k, v in request.items() if k != 'request_digest'}))
+    (tmp_path / 'request.json').write_bytes(_canonical(request))
+    echo = subprocess.run(args, capture_output=True, check=True)
+    echo_report = json.loads(echo.stdout)
+    assert echo_report['maximum_turn_start_wire_bytes'] == 262144
+    assert echo_report['provider_contact'] is False
+    assert not list(tmp_path.glob('*.sqlite'))
+    request['switchyard_schema_sha256'] = 'sha256:' + 'f' * 64
+    request['request_digest'] = digest(V3_DOMAIN + _canonical({k: v for k, v in request.items() if k != 'request_digest'}))
+    (tmp_path / 'request.json').write_bytes(_canonical(request))
+    unsupported = subprocess.run(args, capture_output=True)
+    assert unsupported.returncode != 0
+    assert not list(tmp_path.glob('*.sqlite'))
+    # An older accepted schema remains capped at 16KiB on the new runner.
     request['switchyard_schema_sha256'] = 'sha256:0e9c851cc9fad9538408ab44d84737d5f4d4d7ef39f2fd5db20c6f88fc7fbb9e'
     request['request_digest'] = digest(V3_DOMAIN + _canonical({k: v for k, v in request.items() if k != 'request_digest'}))
     (tmp_path / 'request.json').write_bytes(_canonical(request))

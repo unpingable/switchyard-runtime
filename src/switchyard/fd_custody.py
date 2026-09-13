@@ -163,9 +163,13 @@ class RelativePath:
 class HeldSqlite:
     """A SQLite main file held by inode; sidecars remain below its held parent."""
 
-    def __init__(self, root_fd: int, relative: str, *, create: bool):
+    def __init__(self, root_fd: int, relative: str, *, create: bool, exclusive_create: bool = False):
+        if exclusive_create and not create:
+            raise FdCustodyError("exclusive SQLite creation requires create mode")
         self.parent_fd, self.name = open_parent(root_fd, relative)
         flags = (os.O_RDWR | os.O_CREAT) if create else os.O_RDONLY
+        if exclusive_create:
+            flags |= os.O_EXCL
         try:
             self.fd = os.open(self.name, flags | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
                               dir_fd=self.parent_fd)
