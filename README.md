@@ -2,8 +2,9 @@
 
 A source-only distribution of Switchyard's bounded direct OpenRouter provider
 path. It is the canonical implementation, not a second provider framework.
-The supported entry point is `switchyard-direct-api`; internal modules included
-as dependencies do not establish support for other Switchyard services.
+The supported entry points are `switchyard-direct-api` and the bounded
+`switchyard-provider-runner`; internal modules included as dependencies do not
+establish support for other Switchyard services.
 
 Use it when an enrolled caller needs one durable, bounded model request and an
 inspectable result. It does not validate or accept plans, authorize downstream
@@ -21,6 +22,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install '.[test]'
 .venv/bin/python -m pytest -q
 .venv/bin/switchyard-direct-api --help
+.venv/bin/switchyard-provider-runner --help
 ```
 
 Tests use deterministic local transports, not billable provider calls. See
@@ -28,12 +30,23 @@ Tests use deterministic local transports, not billable provider calls. See
 records, enrollment, limits, cancellation and inspection. Installing this package
 does not enroll a caller or provision a provider account.
 
+The provider runner is also available as
+`python -m switchyard.provider_runner`. Its `run` operation requires an exact
+`--source-provenance SOURCE-PROVENANCE.json` alongside the closed worker-start,
+brief, backend and dispatch inputs. The runner verifies the manifest's canonical
+revision and complete declared source closure against the request before any
+component dispatch. Supplying a manifest does not enroll its owner tuple; the
+calling Foreman must separately accept that exact revision/schema tuple.
+
 The source supports retained v1 requests, enrolled budget-bounded v2 requests,
 and additive v3 requests with a caller-bound strict JSON response schema.
 Structured output does not replace the caller's validation or human review.
-The v3 repair is locally tested; a successful live Maude authoring walkthrough
-is still pending. Install the source revision selected by your caller's guide,
-not an unrelated Switchyard distribution with the same import name.
+The v3 repair is locally tested and one separately authorized Maude call
+returned a validated, scope-bound description-only proposal for review. That
+proposal remains unaccepted; this is not a full authoring walkthrough, human
+acceptance, or authority to act. Install the source revision selected by your
+caller’s guide, not an unrelated Switchyard distribution with the same import
+name.
 
 ## Trust and limits
 

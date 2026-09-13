@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:switchyard:codex-provider-admission:v1",
+  "title": "Switchyard Codex provider-admission V1 closed records",
+  "oneOf": [
+    {"$ref": "#/$defs/binding"},
+    {"$ref": "#/$defs/evidence"},
+    {"$ref": "#/$defs/snapshot"}
+  ],
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "id": {"type": "string", "minLength": 1, "maxLength": 512},
+    "i64": {"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991},
+    "u32": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+    "u64": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "binding_digest", "work_attempt_id", "dispatch_occurrence_id",
+        "adapter_process_occurrence_id", "app_server_session_identity", "thread_id",
+        "turn_id", "provider", "model", "codex_source_head", "executable_kind",
+        "app_server_executable_identity", "app_server_executable_sha256",
+        "internal_provider_request_retries"
+      ],
+      "properties": {
+        "schema": {"const": "switchyard.codex-provider-admission-binding/v1"},
+        "binding_digest": {"$ref": "#/$defs/digest"},
+        "work_attempt_id": {"$ref": "#/$defs/id"},
+        "dispatch_occurrence_id": {"$ref": "#/$defs/id"},
+        "adapter_process_occurrence_id": {"$ref": "#/$defs/id"},
+        "app_server_session_identity": {"$ref": "#/$defs/id"},
+        "thread_id": {"$ref": "#/$defs/id"},
+        "turn_id": {"$ref": "#/$defs/id"},
+        "provider": {"$ref": "#/$defs/id"},
+        "model": {"$ref": "#/$defs/id"},
+        "codex_source_head": {"const": "c36a8137638decf8b04a49611354a90f32c5a945"},
+        "executable_kind": {"enum": ["CAMPAIGN_CODEX_BUILD", "DETERMINISTIC_FIXTURE"]},
+        "app_server_executable_identity": {"$ref": "#/$defs/id"},
+        "app_server_executable_sha256": {"$ref": "#/$defs/digest"},
+        "internal_provider_request_retries": {"const": 0}
+      }
+    },
+    "raw": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["representation", "byte_length", "sha256", "encoding", "bytes_hex"],
+      "properties": {
+        "representation": {"enum": ["EXACT_WIRE_BYTES_INCLUDING_LINE_TERMINATOR", "EXACT_ACQUIRED_FRAME_BYTES_INCLUDING_LINE_TERMINATOR"]},
+        "byte_length": {"type": "integer", "minimum": 1, "maximum": 16384},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "encoding": {"const": "hex"},
+        "bytes_hex": {"type": "string", "minLength": 2, "maxLength": 32768, "pattern": "^[0-9a-f]+$"}
+      }
+    },
+    "execution_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model", "app_server_session_identity", "thread_id", "turn_id", "first_response_id"],
+      "properties": {
+        "provider": {"$ref": "#/$defs/id"},
+        "model": {"$ref": "#/$defs/id"},
+        "app_server_session_identity": {"$ref": "#/$defs/id"},
+        "thread_id": {"$ref": "#/$defs/id"},
+        "turn_id": {"$ref": "#/$defs/id"},
+        "first_response_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "step_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model", "thread_id", "turn_id", "request_occurrence_id", "sampling_ordinal", "request_order", "response_id"],
+      "properties": {
+        "provider": {"$ref": "#/$defs/id"},
+        "model": {"$ref": "#/$defs/id"},
+        "thread_id": {"$ref": "#/$defs/id"},
+        "turn_id": {"$ref": "#/$defs/id"},
+        "request_occurrence_id": {"$ref": "#/$defs/id"},
+        "sampling_ordinal": {"$ref": "#/$defs/u32"},
+        "request_order": {"$ref": "#/$defs/u32"},
+        "response_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "request_normalized": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request_occurrence_id", "sampling_ordinal", "request_order", "started_at_ms", "proves_provider_admission"],
+      "properties": {
+        "request_occurrence_id": {"$ref": "#/$defs/id"},
+        "sampling_ordinal": {"$ref": "#/$defs/u32"},
+        "request_order": {"$ref": "#/$defs/u32"},
+        "started_at_ms": {"$ref": "#/$defs/i64"},
+        "proves_provider_admission": {"const": false}
+      }
+    },
+    "step_normalized": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provider_execution_identity", "provider_execution_step_identity", "first_admission_boundary", "observed_at_ms"],
+      "properties": {
+        "provider_execution_identity": {"$ref": "#/$defs/execution_identity"},
+        "provider_execution_step_identity": {"$ref": "#/$defs/step_identity"},
+        "first_admission_boundary": {"type": "boolean"},
+        "observed_at_ms": {"$ref": "#/$defs/i64"}
+      }
+    },
+    "refusal_normalized": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request_occurrence_id", "sampling_ordinal", "request_order", "response_created", "will_retry", "refusal_kind", "codex_error_info", "retry_after_ms", "diagnostic", "observed_at_ms", "provider_execution_identity"],
+      "properties": {
+        "request_occurrence_id": {"$ref": "#/$defs/id"},
+        "sampling_ordinal": {"$ref": "#/$defs/u32"},
+        "request_order": {"$ref": "#/$defs/u32"},
+        "response_created": {"const": false},
+        "will_retry": {"const": false},
+        "refusal_kind": {"const": "MODEL_AT_CAPACITY"},
+        "codex_error_info": {"const": "serverOverloaded"},
+        "retry_after_ms": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/u64"}]},
+        "diagnostic": {"type": "string", "maxLength": 4096},
+        "observed_at_ms": {"$ref": "#/$defs/i64"},
+        "provider_execution_identity": {"type": "null"}
+      }
+    },
+    "completion_normalized": {
+      "type": "object", "additionalProperties": false,
+      "required": ["response_id", "proves_new_admission"],
+      "properties": {
+        "response_id": {"$ref": "#/$defs/id"},
+        "proves_new_admission": {"const": false}
+      }
+    },
+    "discrepancy_normalized": {
+      "type": "object", "additionalProperties": false,
+      "required": ["detail", "provider_execution_identity", "resume_same_attempt_only"],
+      "properties": {
+        "detail": {"type": "string", "maxLength": 4096},
+        "provider_execution_identity": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/execution_identity"}]},
+        "resume_same_attempt_only": {"type": "boolean"}
+      }
+    },
+    "local_normalized": {
+      "type": "object", "additionalProperties": false,
+      "required": ["proves_provider_admission"],
+      "properties": {"proves_provider_admission": {"const": false}}
+    },
+    "client_request_normalized": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request_id", "request_method", "params_sha256", "proves_provider_admission"],
+      "properties": {
+        "request_id": {"$ref": "#/$defs/u64"},
+        "request_method": {"$ref": "#/$defs/id"},
+        "params_sha256": {"$ref": "#/$defs/digest"},
+        "proves_provider_admission": {"const": false}
+      }
+    },
+    "client_response_normalized": {
+      "type": "object", "additionalProperties": false,
+      "required": ["request_id", "request_method", "params_sha256", "result_sha256", "proves_provider_admission"],
+      "properties": {
+        "request_id": {"$ref": "#/$defs/u64"},
+        "request_method": {"$ref": "#/$defs/id"},
+        "params_sha256": {"$ref": "#/$defs/digest"},
+        "result_sha256": {"$ref": "#/$defs/digest"},
+        "proves_provider_admission": {"const": false}
+      }
+    },
+    "cut_normalized": {
+      "type": "object", "additionalProperties": false,
+      "required": ["adapter_process_occurrence_id", "app_server_session_identity", "stream_quiesced", "loss_generation", "process_disposition", "ordered_high_water", "consumed_ordinal_count", "outstanding_client_request_count", "clean"],
+      "properties": {
+        "adapter_process_occurrence_id": {"$ref": "#/$defs/id"},
+        "app_server_session_identity": {"$ref": "#/$defs/id"},
+        "stream_quiesced": {"type": "boolean"},
+        "loss_generation": {"$ref": "#/$defs/u64"},
+        "process_disposition": {"enum": ["UNKNOWN", "ABSENT", "RUNNING", "EXITED", "EXITED_AFTER_TERMINATE", "EXITED_AFTER_KILL", "EXIT_UNCONFIRMED"]},
+        "ordered_high_water": {"$ref": "#/$defs/u64"},
+        "consumed_ordinal_count": {"$ref": "#/$defs/u64"},
+        "outstanding_client_request_count": {"$ref": "#/$defs/u64"},
+        "clean": {"type": "boolean"}
+      }
+    },
+    "approval_normalized": {
+      "type": "object", "additionalProperties": false,
+      "required": ["approval_response_sent", "protected_effect_absent", "provider_execution_identity"],
+      "properties": {
+        "approval_response_sent": {"const": false},
+        "protected_effect_absent": {"const": true},
+        "provider_execution_identity": {"$ref": "#/$defs/execution_identity"}
+      }
+    },
+    "evidence_common": {
+      "type": "object",
+      "required": ["schema", "evidence_digest", "sequence", "acquisition_ordinal", "acquisition_kind", "binding_digest", "work_attempt_id", "dispatch_occurrence_id", "adapter_process_occurrence_id", "app_server_session_identity", "thread_id", "turn_id", "provider", "model", "kind", "method", "normalized", "raw"],
+      "properties": {
+        "schema": {"const": "switchyard.codex-provider-admission-evidence/v1"},
+        "evidence_digest": {"$ref": "#/$defs/digest"},
+        "sequence": {"type": "integer", "minimum": 0, "maximum": 4095},
+        "acquisition_ordinal": {"oneOf": [{"type": "null"}, {"type": "integer", "minimum": 0, "maximum": 9007199254740991}]},
+        "acquisition_kind": {"oneOf": [{"type": "null"}, {"enum": ["LOSS", "NOTIFICATION", "SERVER_REQUEST", "CLIENT_REQUEST", "CLIENT_RESPONSE", "UNKNOWN"]}]},
+        "binding_digest": {"$ref": "#/$defs/digest"},
+        "work_attempt_id": {"$ref": "#/$defs/id"},
+        "dispatch_occurrence_id": {"$ref": "#/$defs/id"},
+        "adapter_process_occurrence_id": {"$ref": "#/$defs/id"},
+        "app_server_session_identity": {"$ref": "#/$defs/id"},
+        "thread_id": {"$ref": "#/$defs/id"},
+        "turn_id": {"$ref": "#/$defs/id"},
+        "provider": {"$ref": "#/$defs/id"},
+        "model": {"$ref": "#/$defs/id"},
+        "kind": {"type": "string"},
+        "method": {"type": "string", "minLength": 1, "maxLength": 512},
+        "normalized": {"type": "object"},
+        "raw": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/raw"}]}
+      }
+    },
+    "evidence": {
+      "allOf": [
+        {"$ref": "#/$defs/evidence_common"},
+        {
+          "oneOf": [
+            {"properties": {"kind": {"const": "PROVIDER_REQUEST_STARTED"}, "normalized": {"$ref": "#/$defs/request_normalized"}}, "required": ["kind", "normalized"]},
+            {"properties": {"kind": {"const": "PROVIDER_EXECUTION_STEP"}, "normalized": {"$ref": "#/$defs/step_normalized"}}, "required": ["kind", "normalized"]},
+            {"properties": {"kind": {"const": "PROVIDER_ADMISSION_REFUSED"}, "normalized": {"$ref": "#/$defs/refusal_normalized"}}, "required": ["kind", "normalized"]},
+            {"properties": {"kind": {"const": "PROVIDER_RESPONSE_COMPLETED"}, "normalized": {"$ref": "#/$defs/completion_normalized"}}, "required": ["kind", "normalized"]},
+            {"properties": {"kind": {"const": "ADMISSION_DISCREPANCY"}, "normalized": {"$ref": "#/$defs/discrepancy_normalized"}}, "required": ["kind", "normalized"]},
+            {"properties": {"kind": {"const": "LOCAL_TURN_FACT"}, "normalized": {"$ref": "#/$defs/local_normalized"}}, "required": ["kind", "normalized"]},
+            {"properties": {"kind": {"const": "ACQUISITION_WATERMARK"}, "normalized": {"$ref": "#/$defs/local_normalized"}}, "required": ["kind", "normalized"]},
+            {"properties": {"kind": {"const": "CLIENT_REQUEST_ISSUED"}, "normalized": {"$ref": "#/$defs/client_request_normalized"}}, "required": ["kind", "normalized"]},
+            {"properties": {"kind": {"const": "CLIENT_RESPONSE_RETAINED"}, "normalized": {"$ref": "#/$defs/client_response_normalized"}}, "required": ["kind", "normalized"]},
+            {"properties": {"kind": {"const": "ACQUISITION_CUT"}, "normalized": {"$ref": "#/$defs/cut_normalized"}}, "required": ["kind", "normalized"]},
+            {"properties": {"kind": {"const": "WAITING_APPROVAL"}, "normalized": {"$ref": "#/$defs/approval_normalized"}}, "required": ["kind", "normalized"]}
+          ]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "snapshot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "snapshot_digest", "binding", "admission_disposition", "mechanism_state", "provider_execution_identity", "acquisition_cut", "records"],
+      "properties": {
+        "schema": {"const": "switchyard.codex-provider-admission-snapshot/v1"},
+        "snapshot_digest": {"$ref": "#/$defs/digest"},
+        "binding": {"$ref": "#/$defs/binding"},
+        "admission_disposition": {"enum": ["UNRESOLVED", "EXECUTION_ADMITTED", "NOT_ADMITTED_MODEL_AT_CAPACITY", "ADMISSION_INDETERMINATE"]},
+        "mechanism_state": {"enum": ["DISPATCHING", "EXECUTION_ADMITTED", "RUNNING", "PARKED_NOT_ADMITTED", "ADMISSION_INDETERMINATE", "POST_ADMISSION_INTERRUPTED", "WAITING_APPROVAL", "PROVIDER_COMPLETED"]},
+        "provider_execution_identity": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/execution_identity"}]},
+        "acquisition_cut": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/cut_normalized"}]},
+        "records": {"type": "array", "maxItems": 4096, "items": {"$ref": "#/$defs/evidence"}}
+      }
+    }
+  }
+}

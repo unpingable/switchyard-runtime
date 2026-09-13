@@ -9,15 +9,22 @@ if(!sourceArg || !destinationArg || !/^[a-f0-9]{40}$/.test(revision??''))
 const source=resolve(sourceArg), destination=resolve(destinationArg);
 if(existsSync(destination))throw Error('Destination exists; do not overwrite a distribution');
 const git=(...args)=>execFileSync('git',['-C',source,...args],{maxBuffer:10*1024*1024});
-if(git('rev-parse',revision+'^{commit}').toString().trim()!==revision)throw Error('Commit mismatch');
+if(git('status','--porcelain').toString()!=='')throw Error('Canonical source must be clean');
+if(git('rev-parse','HEAD').toString().trim()!==revision)throw Error('Revision must equal canonical clean HEAD');
 const plain=['src/switchyard/__init__.py','src/switchyard/direct_api.py',
   'src/switchyard/nightshift_adapter.py','src/switchyard/appserver.py','src/switchyard/config.py',
+  'src/switchyard/fd_custody.py','src/switchyard/provider_admission.py','src/switchyard/provider_runner.py',
   'src/switchyard/_vendor/__init__.py','src/switchyard/_vendor/rfc8785/__init__.py',
   'src/switchyard/_vendor/rfc8785/_impl.py','src/switchyard/_vendor/rfc8785/LICENSE',
   'src/switchyard/_vendor/rfc8785/VENDOR.md','src/switchyard/_vendor/rfc8785/py.typed',
-  'tests/test_direct_api.py','docs/DIRECT_API_OPENROUTER.md'];
+  'src/switchyard/schemas/nightshift.provider-dispatch-occurrence.v1.schema.json',
+  'src/switchyard/schemas/nightshift.worker-start-request.v3.schema.json',
+  'src/switchyard/schemas/switchyard.codex-provider-admission.v1.schema.json',
+  'src/switchyard/schemas/switchyard.codex-provider-admission.beta.v1.schema.json',
+  'src/switchyard/schemas/switchyard.codex-provider-admission.beta-final.v1.schema.json',
+  'tests/test_direct_api.py','tests/test_runtime_packaging.py','docs/DIRECT_API_OPENROUTER.md'];
 const mapping=Object.fromEntries(plain.map(path=>[path,path]));
-for(const name of ['pyproject.toml','README.md','AGENTS.md','NOTICE','LICENSE'])
+for(const name of ['.gitignore','pyproject.toml','README.md','AGENTS.md','NOTICE','LICENSE'])
   mapping[name]='packaging/runtime/'+name;
 mapping['tools/export-runtime.mjs']='scripts/export-runtime.mjs';
 const files={};

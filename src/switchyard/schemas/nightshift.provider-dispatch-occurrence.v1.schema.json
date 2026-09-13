@@ -1,0 +1,14 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"urn:nightshift:provider-dispatch-occurrence:v1",
+  "title":"Nightshift provider dispatch occurrence V1",
+  "type":"object","additionalProperties":false,
+  "required":["schema","dispatch_digest","requirement_digest","policy_digest","packet_digest","run_id","work_item_id","work_attempt_id","dispatch_occurrence_id","dispatch_ordinal","selected_model_ordinal","selection","adapter_id","adapter_version","adapter_protocol","adapter_process_occurrence_id","app_server_session_identity","worker_start_request_schema","worker_start_request_digest","worker_brief_digest","opened_at","internal_provider_retry_count","provider_execution_id","authority_effect"],
+  "properties":{
+    "schema":{"const":"nightshift.provider-dispatch-occurrence/v1"},"dispatch_digest":{"$ref":"#/$defs/digest"},"requirement_digest":{"$ref":"#/$defs/digest"},"policy_digest":{"$ref":"#/$defs/digest"},"packet_digest":{"$ref":"#/$defs/digest"},
+    "run_id":{"$ref":"#/$defs/id"},"work_item_id":{"$ref":"#/$defs/id"},"work_attempt_id":{"$ref":"#/$defs/id"},"dispatch_occurrence_id":{"$ref":"#/$defs/id"},"dispatch_ordinal":{"type":"integer","minimum":1,"maximum":16},"selected_model_ordinal":{"type":"integer","minimum":0,"maximum":15},
+    "selection":{"$ref":"#/$defs/selection"},"adapter_id":{"$ref":"#/$defs/id"},"adapter_version":{"$ref":"#/$defs/id"},"adapter_protocol":{"$ref":"#/$defs/id"},"adapter_process_occurrence_id":{"$ref":"#/$defs/id"},"app_server_session_identity":{"$ref":"#/$defs/id"},
+    "worker_start_request_schema":{"const":"nightshift.worker-start-request/v3"},"worker_start_request_digest":{"$ref":"#/$defs/digest"},"worker_brief_digest":{"$ref":"#/$defs/digest"},"opened_at":{"$ref":"#/$defs/time"},"internal_provider_retry_count":{"const":0},"provider_execution_id":{"type":"null"},"authority_effect":{"const":"LOCAL_AGENT_COMPUTE_SCHEDULING_ONLY"}
+  },
+  "$defs":{"digest":{"type":"string","pattern":"^sha256:[0-9a-f]{64}$"},"id":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z0-9._:/-]+$"},"time":{"type":"string","format":"date-time","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:Z|\\.(?:(?!000)[0-9]{3}|[0-9]{3}(?!000)[0-9]{3}|[0-9]{6}(?!000)[0-9]{3})Z)$"},"selection":{"type":"object","additionalProperties":false,"required":["provider_id","model_id","model_class"],"properties":{"provider_id":{"$ref":"#/$defs/id"},"model_id":{"$ref":"#/$defs/id"},"model_class":{"$ref":"#/$defs/id"}}}}
+}

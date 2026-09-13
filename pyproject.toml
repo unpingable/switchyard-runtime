@@ -8,10 +8,11 @@ version = "0.1.0"
 description = "Source distribution of Switchyard's bounded direct provider runtime"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
-dependencies = []
+dependencies = ["jsonschema[format]>=4.10"]
 
 [project.scripts]
 switchyard-direct-api = "switchyard.direct_api:main"
+switchyard-provider-runner = "switchyard.provider_runner:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
@@ -20,6 +21,7 @@ test = ["pytest>=8"]
 where = ["src"]
 
 [tool.setuptools.package-data]
+"switchyard" = ["schemas/*.json"]
 "switchyard._vendor.rfc8785" = ["LICENSE", "VENDOR.md", "py.typed"]
 
 [tool.pytest.ini_options]

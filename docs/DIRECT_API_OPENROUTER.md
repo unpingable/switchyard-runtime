@@ -1,9 +1,11 @@
 # Bounded direct OpenRouter transport
 
 Status: **implemented and deterministically fixture-tested**. One bounded live
-v2 response was observed; Maude refused its Markdown-fenced JSON. That establishes
-provider contact, not a successful authoring walkthrough. V3 structured output
-has not yet been live-qualified.
+v2 response was observed; Maude refused its Markdown-fenced JSON. A later,
+separately authorized v3 response was accepted by Maude's closed parser as one
+scope-bound description-only proposal for review. It remains unaccepted. These
+records establish bounded provider contact and one proposed/diff result, not a
+full authoring walkthrough, human approval, or downstream authority.
 This module adds one explicit API acquisition route. It does not replace the
 Codex App Server adapter, admit work, authorize effects, evaluate model output,
 or establish provider availability.
@@ -133,7 +135,19 @@ reported model and upstream provider remain response evidence.
 
 HTTP 401/403, 402, 429, 503, 408/504, and other non-200 responses retain typed
 authentication, quota, rate/capacity, provider-capacity, timeout-uncertain, and
-generic refusal states. Response bodies and exception text are not persisted.
+generic refusal states. When a bounded JSON error envelope supplies a scalar
+`error.code`, `error.type`, `error.metadata.error_type`, or
+`error.metadata.provider_code`, the adapter retains only values matching its
+1–128 character diagnostic-token grammar. The fields are
+`provider_error_code`, `provider_error_type`, and
+`upstream_provider_error_code`; documented `metadata.error_type` takes
+precedence over the legacy top-level `error.type`. Numeric codes are normalized
+to strings. A value containing the active credential or beginning with a
+recognized secret prefix is omitted. These optional identifiers improve
+refusal inspection without changing its disposition.
+Messages, raw response bodies, headers, request echoes, nested metadata, and
+exception text are not persisted; malformed, prose-like, or overlong diagnostic
+values are omitted.
 The credential value is passed only to the one transport call and is never
 placed in request, owner binding, result, or SQLite state.
 
