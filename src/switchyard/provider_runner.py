@@ -118,6 +118,10 @@ def bounded_thread_start(workspace: Path, backend: dict) -> dict:
     backend_executable = Path(backend["executable"]).resolve(strict=True)
     return {
         "cwd": str(workspace),
+        # The published standalone App Server emits the raw-response completion
+        # boundary only for this documented thread-local subscription.  The
+        # provider-admission capture contract requires that boundary.
+        "experimentalRawEvents": True,
         # The qualified App Server reports an empty runtime-root set even when
         # the experimental request field is supplied. Bind the permission
         # profile directly to the one exact workspace path instead.

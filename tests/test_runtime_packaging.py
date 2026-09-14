@@ -40,6 +40,7 @@ assert scripts['switchyard-review-verifier'] == 'switchyard.review_verifier:main
 schemas = resources.files('switchyard').joinpath('schemas')
 names = sorted(item.name for item in schemas.iterdir() if item.name.endswith('.json'))
 assert set(names) == {
+    'nightshift.orientation-packet.v1.schema.json',
     'nightshift.provider-dispatch-occurrence.v1.schema.json',
     'nightshift.worker-start-request.v3.schema.json',
     'switchyard.codex-provider-admission.v1.schema.json',

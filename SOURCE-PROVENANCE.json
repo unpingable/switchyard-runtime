@@ -1,7 +1,7 @@
 {
   "schema": "switchyard.runtime-source-export/v1",
   "canonical_source": "Switchyard",
-  "canonical_revision": "805e84d777eaab57c2108919ce43b09828e6e1ef",
+  "canonical_revision": "df9acbd044beaa4cb165dcb648341cc373aecd72",
   "export_procedure": "tools/export-runtime.mjs",
   "authored_material_license": "Apache-2.0",
   "third_party_notices_retained": true,
@@ -45,6 +45,11 @@
       "canonical_path": "packaging/runtime/pyproject.toml",
       "bytes": 840,
       "sha256": "2675c4020b2c714f7cf3ee1503ee6f753c449af3fabce147c2575b07d88a41df"
+    },
+    "qualification/provider_mapper_fixtures.py": {
+      "canonical_path": "qualification/provider_mapper_fixtures.py",
+      "bytes": 3643,
+      "sha256": "0ea2dce311ebbb883fca5e576fefea182555ed521b0b4c9f791e916f2493819b"
     },
     "README.md": {
       "canonical_path": "packaging/runtime/README.md",
@@ -118,13 +123,18 @@
     },
     "src/switchyard/provider_runner.py": {
       "canonical_path": "src/switchyard/provider_runner.py",
-      "bytes": 56558,
-      "sha256": "b5aeb77b95829779ad7d2b524ab1bf73c2dc86d48ccc88dc270eaa746b8ef7a6"
+      "bytes": 56823,
+      "sha256": "279e3e40e95637a83754ca0c81a354117329bc406435a5a4a164b9e842f6ee08"
     },
     "src/switchyard/review_verifier.py": {
       "canonical_path": "src/switchyard/review_verifier.py",
       "bytes": 24903,
       "sha256": "c2912d9fb74ed2bc9567d495b6f4a4fe41327ca93b52bb024f62c674ec7d39e1"
+    },
+    "src/switchyard/schemas/nightshift.orientation-packet.v1.schema.json": {
+      "canonical_path": "src/switchyard/schemas/nightshift.orientation-packet.v1.schema.json",
+      "bytes": 8938,
+      "sha256": "6b71b4ec182811c376c4b852bc6ae540e1c063d5db43d1cacefaeead9636c50f"
     },
     "src/switchyard/schemas/nightshift.provider-dispatch-occurrence.v1.schema.json": {
       "canonical_path": "src/switchyard/schemas/nightshift.provider-dispatch-occurrence.v1.schema.json",
@@ -166,6 +176,11 @@
       "bytes": 13769,
       "sha256": "131f1f6e0cf8cb0aea26ed225c584440c81ffedd443c68ace23adecbe493cf93"
     },
+    "src/switchyard/submission_protocol.py": {
+      "canonical_path": "src/switchyard/submission_protocol.py",
+      "bytes": 16495,
+      "sha256": "f65cd7dc0082ff3aae5b5b527b93558d310303e723aef863f071e272c55d11d3"
+    },
     "tests/fixtures/bounded_turn_echo_vector.py": {
       "canonical_path": "tests/fixtures/bounded_turn_echo_vector.py",
       "bytes": 4450,
@@ -181,10 +196,20 @@
       "bytes": 12572,
       "sha256": "ab4e6caeee3537563b381e71b10abe83efef49fd6df8913e984e4ccfd34f2309"
     },
+    "tests/fixtures/nightshift.orientation-packet.positive.v1.json": {
+      "canonical_path": "tests/fixtures/nightshift.orientation-packet.positive.v1.json",
+      "bytes": 33270,
+      "sha256": "e9581778c89b3a8bfc8710adc95ba1f4446900c29f0884988e2be33b227b9a10"
+    },
     "tests/fixtures/prelaunch-vector.json": {
       "canonical_path": "tests/fixtures/prelaunch-vector.json",
       "bytes": 3522,
       "sha256": "e183fe227eb28a0cb1337733434dd83b01f672ed8d86163848ca388828b69d77"
+    },
+    "tests/packet_fixture.py": {
+      "canonical_path": "tests/packet_fixture.py",
+      "bytes": 1564,
+      "sha256": "a2a1cf0dc7b841a7a234b61a3c0f6ba24330e85f97e6a2276806f801b772ee4c"
     },
     "tests/test_bounded_turn_echo.py": {
       "canonical_path": "tests/test_bounded_turn_echo.py",
@@ -196,10 +221,25 @@
       "bytes": 37067,
       "sha256": "ab11249bda879e1c0b2e149a6b528253b83d581f6c07f37eda5d0764e366e2a1"
     },
+    "tests/test_nightshift_adapter.py": {
+      "canonical_path": "tests/test_nightshift_adapter.py",
+      "bytes": 57411,
+      "sha256": "d181b1ac43e3737bc55e941c82c6bb8424997e03f19f107efe7dfa88398637b6"
+    },
     "tests/test_prelaunch_contract.py": {
       "canonical_path": "tests/test_prelaunch_contract.py",
       "bytes": 3169,
       "sha256": "829ddbfba2c86b19efdb37c2d132f0e6edfc40aa52ca5eff54c94fb0a01fb6b7"
+    },
+    "tests/test_provider_runner_raw_response_completion.py": {
+      "canonical_path": "tests/test_provider_runner_raw_response_completion.py",
+      "bytes": 5473,
+      "sha256": "d93fb4af2a956f6db9ac5fec1e7ff2ee31739411a988ad39306423a05f47fc2d"
+    },
+    "tests/test_provider_runner.py": {
+      "canonical_path": "tests/test_provider_runner.py",
+      "bytes": 33317,
+      "sha256": "580367a1342257fdf109248334ce62a4127f95265ff3282b006107e9ed5745d5"
     },
     "tests/test_review_verifier_export.py": {
       "canonical_path": "tests/test_review_verifier_export.py",
@@ -208,8 +248,8 @@
     },
     "tests/test_runtime_packaging.py": {
       "canonical_path": "tests/test_runtime_packaging.py",
-      "bytes": 3752,
-      "sha256": "c42c60ee5c7b5b264ac4d5793a63f19a42066f950188d20e8ab15787725b493c"
+      "bytes": 3804,
+      "sha256": "6d48bc45a5fbdc273ac92318494167ff7957c510152ff014c5a9d8a809abba90"
     },
     "tests/test_size_controls.py": {
       "canonical_path": "tests/test_size_controls.py",
@@ -218,8 +258,8 @@
     },
     "tools/export-runtime.mjs": {
       "canonical_path": "scripts/export-runtime.mjs",
-      "bytes": 4398,
-      "sha256": "db9142dc6d61e0b3ecd4cf864aefcc2f26065de446feb72b4fa304b938bd46bd"
+      "bytes": 4929,
+      "sha256": "e3fddcdceb88ea7d29703505a2cf87d2cde1b07cda231761dddfa8b2fccc8831"
     }
   }
 }

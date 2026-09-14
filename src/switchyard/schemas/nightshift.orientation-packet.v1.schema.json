@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpingable.github.io/nightshift/schemas/nightshift.orientation-packet.v1.schema.json",
+  "title": "NightshiftPacketV1",
+  "description": "A deterministic, content-addressed, non-authorizing orientation and scheduling envelope.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "packet_id",
+    "packet_digest",
+    "created_at",
+    "current_until",
+    "authoring",
+    "canonicalization",
+    "source_evidence",
+    "repository_custody",
+    "global_constraints",
+    "work_items",
+    "worker_budget",
+    "human_question_criteria",
+    "switchyard"
+  ],
+  "properties": {
+    "schema": {"const": "nightshift.orientation-packet/v1"},
+    "packet_id": {"$ref": "#/$defs/id"},
+    "packet_digest": {"$ref": "#/$defs/digest"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "current_until": {"type": "string", "format": "date-time"},
+    "authoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent", "session", "authority_basis"],
+      "properties": {
+        "agent": {"type": "string", "minLength": 1},
+        "session": {"type": "string", "minLength": 1},
+        "authority_basis": {"type": "string", "minLength": 1}
+      }
+    },
+    "canonicalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "digest_algorithm", "digest_preimage"],
+      "properties": {
+        "algorithm": {"const": "RFC8785-JCS"},
+        "digest_algorithm": {"const": "SHA-256"},
+        "digest_preimage": {
+          "const": "domain prefix nightshift.orientation-packet.digest/v1 NUL, then packet object with packet_digest and switchyard.plan_ref omitted as RFC8785-JCS"
+        }
+      }
+    },
+    "source_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/sourceEvidence"}
+    },
+    "repository_custody": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/repositoryCustody"}
+    },
+    "global_constraints": {"$ref": "#/$defs/globalConstraints"},
+    "work_items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/workItem"}
+    },
+    "worker_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maximum_concurrent_mutating_workers",
+        "recursive_worker_swarms_forbidden",
+        "reserve_posture"
+      ],
+      "properties": {
+        "maximum_concurrent_mutating_workers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "recursive_worker_swarms_forbidden": {"const": true},
+        "reserve_posture": {"type": "string", "minLength": 1}
+      }
+    },
+    "human_question_criteria": {"$ref": "#/$defs/nonEmptyStrings"},
+    "switchyard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alias", "plan_ref", "transport_fields"],
+      "properties": {
+        "alias": {"type": "string", "minLength": 1},
+        "plan_ref": {
+          "type": "string",
+          "pattern": "^nightshift-packet://[0-9a-f]{64}$"
+        },
+        "transport_fields": {
+          "const": ["alias", "plan_ref", "nonce"]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_.-]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "nonEmptyStrings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "sourceEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "branch",
+        "commit",
+        "path",
+        "file_digest",
+        "predecessor_classification"
+      ],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "branch": {"type": "string"},
+        "commit": {"$ref": "#/$defs/commit"},
+        "path": {"type": "string", "minLength": 1},
+        "file_digest": {"$ref": "#/$defs/digest"},
+        "predecessor_classification": {"type": "string", "minLength": 1}
+      }
+    },
+    "repositoryCustody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "path",
+        "branch",
+        "commit",
+        "remote",
+        "remote_commit",
+        "worktree_clean",
+        "discrepancy"
+      ],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "branch": {"type": "string"},
+        "commit": {"$ref": "#/$defs/commit"},
+        "remote": {"type": ["string", "null"]},
+        "remote_commit": {
+          "oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]
+        },
+        "worktree_clean": {"type": "boolean"},
+        "discrepancy": {"type": ["string", "null"]}
+      }
+    },
+    "globalConstraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_actions", "forbidden_actions", "invariants"],
+      "properties": {
+        "allowed_actions": {"$ref": "#/$defs/nonEmptyStrings"},
+        "forbidden_actions": {"$ref": "#/$defs/nonEmptyStrings"},
+        "invariants": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "campaign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codename", "canonical_slug"],
+      "properties": {
+        "codename": {
+          "type": "string",
+          "pattern": "^[A-Z0-9-]+$",
+          "maxLength": 80
+        },
+        "canonical_slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$",
+          "maxLength": 160
+        }
+      }
+    },
+    "predecessor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["campaign", "classification", "commit"],
+      "properties": {
+        "campaign": {"type": "string", "minLength": 1},
+        "classification": {"type": "string", "minLength": 1},
+        "commit": {"$ref": "#/$defs/commit"}
+      }
+    },
+    "workRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_kind",
+        "contract_schema",
+        "repository",
+        "branch",
+        "commit",
+        "path",
+        "proposal_ref"
+      ],
+      "properties": {
+        "contract_kind": {
+          "enum": ["exact_work_proposal_v1", "repository_actual_equivalent"]
+        },
+        "contract_schema": {"type": "string", "minLength": 1},
+        "repository": {"type": "string", "minLength": 1},
+        "branch": {"type": "string"},
+        "commit": {"$ref": "#/$defs/commit"},
+        "path": {"type": "string", "minLength": 1},
+        "proposal_ref": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "modelRouting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "reason", "maximum_mutating_workers"],
+      "properties": {
+        "class": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "maximum_mutating_workers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "workItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "track",
+        "campaign",
+        "predecessor_lineage",
+        "dependencies",
+        "exact_work_refs",
+        "entry_predicates",
+        "allowed_mutation_surfaces",
+        "forbidden_actions",
+        "acceptance_tests",
+        "stop_conditions",
+        "expected_receipts",
+        "closeout_requirements",
+        "model_routing"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "track": {"type": "string", "minLength": 1},
+        "campaign": {"$ref": "#/$defs/campaign"},
+        "predecessor_lineage": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/predecessor"}
+        },
+        "dependencies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "exact_work_refs": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/workRef"}
+        },
+        "entry_predicates": {"$ref": "#/$defs/nonEmptyStrings"},
+        "allowed_mutation_surfaces": {"$ref": "#/$defs/nonEmptyStrings"},
+        "forbidden_actions": {"$ref": "#/$defs/nonEmptyStrings"},
+        "acceptance_tests": {"$ref": "#/$defs/nonEmptyStrings"},
+        "stop_conditions": {"$ref": "#/$defs/nonEmptyStrings"},
+        "expected_receipts": {"$ref": "#/$defs/nonEmptyStrings"},
+        "closeout_requirements": {"$ref": "#/$defs/nonEmptyStrings"},
+        "model_routing": {"$ref": "#/$defs/modelRouting"}
+      }
+    }
+  }
+}

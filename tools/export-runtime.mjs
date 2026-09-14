@@ -14,11 +14,12 @@ if(git('rev-parse','HEAD').toString().trim()!==revision)throw Error('Revision mu
 const plain=['src/switchyard/__init__.py','src/switchyard/direct_api.py',
   'src/switchyard/nightshift_adapter.py','src/switchyard/appserver.py','src/switchyard/config.py',
   'src/switchyard/fd_custody.py','src/switchyard/provider_admission.py','src/switchyard/provider_runner.py',
-  'src/switchyard/review_verifier.py',
+  'src/switchyard/review_verifier.py','src/switchyard/submission_protocol.py',
   'src/switchyard/_vendor/__init__.py','src/switchyard/_vendor/rfc8785/__init__.py',
   'src/switchyard/_vendor/rfc8785/_impl.py','src/switchyard/_vendor/rfc8785/LICENSE',
   'src/switchyard/_vendor/rfc8785/VENDOR.md','src/switchyard/_vendor/rfc8785/py.typed',
   'src/switchyard/schemas/nightshift.provider-dispatch-occurrence.v1.schema.json',
+  'src/switchyard/schemas/nightshift.orientation-packet.v1.schema.json',
   'src/switchyard/schemas/nightshift.worker-start-request.v3.schema.json',
   'src/switchyard/schemas/switchyard.codex-provider-admission.v1.schema.json',
   'src/switchyard/schemas/switchyard.codex-provider-admission.beta.v1.schema.json',
@@ -31,6 +32,12 @@ const plain=['src/switchyard/__init__.py','src/switchyard/direct_api.py',
   'tests/test_size_controls.py','tests/fixtures/bounded-turn-synthetic.json',
   'tests/test_bounded_turn_echo.py','tests/fixtures/bounded-turn-echo-vector.json',
   'tests/fixtures/bounded_turn_echo_vector.py',
+  // The raw completion-gate qualification imports these generic local fixture
+  // builders; all remain deterministic and make no provider contact.
+  'tests/packet_fixture.py','tests/test_nightshift_adapter.py',
+  'tests/test_provider_runner.py','tests/test_provider_runner_raw_response_completion.py',
+  'tests/fixtures/nightshift.orientation-packet.positive.v1.json',
+  'qualification/provider_mapper_fixtures.py',
   'docs/BOUNDED_PROVIDER_CUSTODY_V1.md',
   'docs/DIRECT_API_OPENROUTER.md','docs/PROVIDER_PRELAUNCH_CLOSURE_V1.md'];
 const mapping=Object.fromEntries(plain.map(path=>[path,path]));
