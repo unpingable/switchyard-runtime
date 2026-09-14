@@ -57,3 +57,4 @@ for line in sys.stdin:
     if method == 'initialize':
         opt_out = set(message.get('params', {}).get('capabilities', {}).get('optOutNotificationMethods', []))
         print(json.dumps({'id': message['id'], 'result': {'userAgent': 'local-raw-item-fixture'}}), flush=True)
+
