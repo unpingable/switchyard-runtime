@@ -56,6 +56,7 @@ RUNNER_SOURCE_CLOSURE = (
     "src/switchyard/schemas/switchyard.codex-provider-admission.beta-final.v1.schema.json",
     "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn.v1.schema.json",
     "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json",
+    "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v2.schema.json",
 )
 BOUNDED_BASE_INSTRUCTIONS = (
     "You are a read-only source reviewer. Use only the supplied workspace and return "
@@ -105,7 +106,7 @@ def preflight_request(request: dict, brief: bytes, backend: dict) -> dict:
 def capture_contract_for_request(request: dict) -> str:
     """Context from an already validated retained request, never from a snapshot."""
     schemas = Path(__file__).parent / "schemas"
-    echo = (schemas / "switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json").read_bytes()
+    echo = (schemas / "switchyard.codex-provider-admission.bounded-turn-echo.v2.schema.json").read_bytes()
     bounded = (schemas / "switchyard.codex-provider-admission.bounded-turn.v1.schema.json").read_bytes()
     if request["switchyard_schema_sha256"] == digest(echo):
         return BOUNDED_TURN_ECHO_CAPTURE_CONTRACT
@@ -253,7 +254,7 @@ def validate_request(request: dict, brief: bytes) -> None:
     owner_schemas = [owner_schema]
     if request["codex_owner_head"] == provider_admission.FINAL_CODEX_SOURCE_HEAD:
         owner_schemas.append("switchyard.codex-provider-admission.bounded-turn.v1.schema.json")
-        owner_schemas.append("switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json")
+        owner_schemas.append("switchyard.codex-provider-admission.bounded-turn-echo.v2.schema.json")
     if request["switchyard_schema_sha256"] not in {
             digest((Path(__file__).parent / "schemas" / name).read_bytes()) for name in owner_schemas}:
         raise AdapterProtocolError("request owner/schema tuple differs")

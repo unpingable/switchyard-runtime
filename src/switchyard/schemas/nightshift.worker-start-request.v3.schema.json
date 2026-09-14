@@ -42,7 +42,7 @@
     "provider_admission_snapshot_schema":{"enum":["switchyard.codex-provider-admission-snapshot/v1","nightshift.holding-deterministic-provider-admission-evidence/v1","nightshift.holding-deterministic-provider-admission-evidence/v2"]},
     "codex_owner_head":{"enum":["c36a8137638decf8b04a49611354a90f32c5a945","6893ae42233aa95b1c1623497405681d99a589da","97b0acd5ce2ccb3c87a763606696c35a450947f6"]},
     "switchyard_owner_head":{"type":"string","pattern":"^[0-9a-f]{40}$"},
-    "switchyard_schema_sha256":{"enum":["sha256:131f1f6e0cf8cb0aea26ed225c584440c81ffedd443c68ace23adecbe493cf93","sha256:448c2535c9c9586754d222912bbc86bc09fadb3c98059dc134141aff08efb8ba","sha256:0e9c851cc9fad9538408ab44d84737d5f4d4d7ef39f2fd5db20c6f88fc7fbb9e","sha256:4e4eac904735c570f3fe7332765fffe4608cc3987fee9c1ef4b8db3ffdf03376","sha256:2bcf795c753a08d3c7e2ef8b521b44b155054fccbd50452662230d59ddd3f293"]},
+    "switchyard_schema_sha256":{"enum":["sha256:131f1f6e0cf8cb0aea26ed225c584440c81ffedd443c68ace23adecbe493cf93","sha256:448c2535c9c9586754d222912bbc86bc09fadb3c98059dc134141aff08efb8ba","sha256:0e9c851cc9fad9538408ab44d84737d5f4d4d7ef39f2fd5db20c6f88fc7fbb9e","sha256:4e4eac904735c570f3fe7332765fffe4608cc3987fee9c1ef4b8db3ffdf03376","sha256:2bcf795c753a08d3c7e2ef8b521b44b155054fccbd50452662230d59ddd3f293","sha256:c851fb5dd157ebb70896da06db50a07b968b3c0d357b2defc73ca267b9d82f93"]},
     "switchyard_deterministic_fixture_sha256":{"const":"sha256:cafa673ac58f60029fd6c1de229b4f57d9f42ba918b7ecb2a3bfb20cb2b41a31"},
     "provider_execution_id":{"type":"null"},
     "internal_provider_retry_count":{"const":0},

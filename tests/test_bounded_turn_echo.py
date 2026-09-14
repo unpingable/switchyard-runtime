@@ -1,12 +1,15 @@
 """Deterministic source-shaped echo controls; no App Server or provider process."""
+import io
 import json
+import queue
 from pathlib import Path
 import runpy
+from types import SimpleNamespace
 
 import pytest
 from jsonschema import Draft202012Validator
 
-from switchyard.appserver import (AcquisitionCut, AcquisitionEnvelope, ServerMessage,
+from switchyard.appserver import (AcquisitionCut, AcquisitionEnvelope, AppServerClient, ServerMessage,
     BOUNDED_TURN_ECHO_CAPTURE_CONTRACT, is_bounded_turn_agent_output,
     is_bounded_turn_user_input_echo, normalized_bounded_turn_input, request_wire)
 from switchyard.provider_admission import (FINAL_CODEX_SOURCE_HEAD,
@@ -18,8 +21,8 @@ TURN = "turn-echo"
 TEXT = "x" * 20000
 
 
-def wire(method, params):
-    value = {"method": method, "params": params}
+def wire(method, params, *, emitted_at_ms=9):
+    value = {"method": method, "params": params, "emittedAtMs": emitted_at_ms}
     raw = request_wire(value)
     return ServerMessage(value, raw)
 
@@ -58,10 +61,65 @@ def test_source_defined_input_default_is_the_only_normalization():
     assert not is_bounded_turn_user_input_echo(wire("item/started", {
         "threadId": THREAD, "turnId": TURN, "item": changed, "startedAtMs": 1}), expected,
         thread_id=THREAD, turn_id=TURN)
-    extra = {"id": 99, "method": "item/started", "params": {
+    extra = {"id": 99, "method": "item/started", "emittedAtMs": 9, "params": {
         "threadId": THREAD, "turnId": TURN, "item": user_item(), "startedAtMs": 1}}
     assert not is_bounded_turn_user_input_echo(ServerMessage(extra, request_wire(extra)), expected,
         thread_id=THREAD, turn_id=TURN)
+    missing_envelope_time = {"method": "item/started", "params": {
+        "threadId": THREAD, "turnId": TURN, "item": user_item(), "startedAtMs": 1}}
+    assert not is_bounded_turn_user_input_echo(
+        ServerMessage(missing_envelope_time, request_wire(missing_envelope_time)), expected,
+        thread_id=THREAD, turn_id=TURN)
+    assert not is_bounded_turn_user_input_echo(wire("item/started", {
+        "threadId": THREAD, "turnId": TURN, "item": user_item(), "startedAtMs": 1},
+        emitted_at_ms=True), expected, thread_id=THREAD, turn_id=TURN)
+    assert not is_bounded_turn_user_input_echo(wire("item/started", {
+        "threadId": THREAD, "turnId": TURN, "item": user_item(), "startedAtMs": 1},
+        emitted_at_ms=0), expected, thread_id=THREAD, turn_id=TURN)
+
+
+def test_reader_sets_selected_turn_before_contiguous_large_agent_frame():
+    """The reader, not the request caller, must close the response/frame race."""
+    client = AppServerClient(["fixture-only"], enable_ordered_acquisition=True,
+        capture_contract=BOUNDED_TURN_ECHO_CAPTURE_CONTRACT,
+        adapter_process_occurrence_id="echo-process", app_server_session_identity="echo-session")
+    client._bounded_turn_echo = (THREAD, normalized_bounded_turn_input([{"type": "text", "text": TEXT}]))
+    response = {"id": 3, "result": {"turn": {"id": TURN}}}
+    frame = {"method": "item/started", "emittedAtMs": 9, "params": {
+        "threadId": THREAD, "turnId": TURN, "startedAtMs": 1, "item": agent_item(TEXT),
+    }}
+    raw = request_wire(response) + request_wire(frame)
+    assert len(request_wire(frame)) > 16384
+    client._pending[3] = queue.Queue(maxsize=1)
+    client._pending_methods[3] = "turn/start"
+    client._proc = SimpleNamespace(stdout=io.BytesIO(raw))
+    client._read_stdout_loop()
+    retained = client.drain_ordered_acquisition()
+    assert [item.kind for item in retained] == ["CLIENT_RESPONSE", "NOTIFICATION"]
+    assert retained[1].message.raw_bytes == request_wire(frame)
+    assert client._bounded_turn_id == TURN
+    assert client.stdout_refused_frames == 0
+
+
+@pytest.mark.parametrize("response", [
+    {"id": 3, "result": {"turn": {}}},
+    {"id": 3, "result": {"turn": {"id": "different-turn"}}},
+])
+def test_reader_refuses_contiguous_large_agent_frame_without_exact_response_identity(response):
+    client = AppServerClient(["fixture-only"], enable_ordered_acquisition=True,
+        capture_contract=BOUNDED_TURN_ECHO_CAPTURE_CONTRACT,
+        adapter_process_occurrence_id="echo-process", app_server_session_identity="echo-session")
+    client._bounded_turn_echo = (THREAD, normalized_bounded_turn_input([{"type": "text", "text": TEXT}]))
+    frame = {"method": "item/started", "emittedAtMs": 9, "params": {
+        "threadId": THREAD, "turnId": TURN, "startedAtMs": 1, "item": agent_item(TEXT),
+    }}
+    client._pending[3] = queue.Queue(maxsize=1)
+    client._pending_methods[3] = "turn/start"
+    client._proc = SimpleNamespace(stdout=io.BytesIO(request_wire(response) + request_wire(frame)))
+    client._read_stdout_loop()
+    retained = client.drain_ordered_acquisition()
+    assert [item.kind for item in retained] == ["CLIENT_RESPONSE", "LOSS"]
+    assert client.stdout_refused_frames == 1
 
 
 def test_exact_source_shaped_large_echoes_are_retained_as_watermarks():
@@ -89,7 +147,7 @@ def test_exact_source_shaped_large_echoes_are_retained_as_watermarks():
     assert "item/agentMessage/delta" in methods and "turn/completed" in methods
     mapper.consume_cut(AcquisitionCut(True, 0, "EXITED", 8, "echo-process", "echo-session"))
     schema = json.loads((Path(__file__).parents[1] / "src/switchyard/schemas/"
-        "switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json").read_bytes())
+        "switchyard.codex-provider-admission.bounded-turn-echo.v2.schema.json").read_bytes())
     Draft202012Validator(schema).validate(mapper.snapshot())
 
 

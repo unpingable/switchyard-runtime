@@ -60,6 +60,13 @@ def _bounded_i64(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and -(2**53 - 1) <= value <= 2**53 - 1
 
 
+def _source_notification_envelope(message: "ServerMessage") -> bool:
+    """Require the closed Codex97 outgoing notification envelope."""
+    emitted_at_ms = message.raw.get("emittedAtMs")
+    return (frozenset(message.raw) == {"method", "params", "emittedAtMs"}
+            and _bounded_i64(emitted_at_ms) and emitted_at_ms > 0)
+
+
 def normalized_bounded_turn_input(value: Any) -> list[dict[str, Any]]:
     """Normalize only Codex97's declared absent text-elements default."""
     if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
@@ -84,7 +91,7 @@ def is_bounded_turn_user_input_echo(
     message: "ServerMessage", expected_input: list[dict[str, Any]] | None, *,
     thread_id: str | None = None, turn_id: str | None = None,
 ) -> bool:
-    if (expected_input is None or frozenset(message.raw) != {"method", "params"}
+    if (expected_input is None or not _source_notification_envelope(message)
             or message.method not in {"item/started", "item/completed"}):
         return False
     params = message.params
@@ -103,7 +110,7 @@ def is_bounded_turn_user_input_echo(
 def is_bounded_turn_agent_output(message: "ServerMessage", *, thread_id: str | None = None,
                                   turn_id: str | None = None) -> bool:
     """Accept only source-defined 32KiB agent output frames, never generic item traffic."""
-    if frozenset(message.raw) != {"method", "params"}:
+    if not _source_notification_envelope(message):
         return False
     params = message.params
     if message.method in {"item/started", "item/completed"}:
@@ -813,6 +820,17 @@ class AppServerClient:
                         raw_line,
                     )
                     continue
+                # The reader can receive another notification immediately after
+                # this response, before the request caller resumes from its
+                # response queue.  Make the selected turn identity available at
+                # the response boundary so a source-shaped large agent frame is
+                # not incorrectly treated as unselected during that interval.
+                if (request_method == "turn/start"
+                        and self.capture_contract == BOUNDED_TURN_ECHO_CAPTURE_CONTRACT):
+                    result = message.get("result")
+                    turn = result.get("turn") if isinstance(result, dict) else None
+                    if isinstance(turn, dict) and _bounded_id(turn.get("id")):
+                        self._bounded_turn_id = turn["id"]
                 wrapped = ServerMessage(message, raw_bytes=raw_line)
                 with self._acquisition_lock:
                     if len(raw_line) > MAXIMUM_RETAINED_ADAPTER_EVENT_BYTES:

@@ -1,7 +1,7 @@
 {
   "schema": "switchyard.runtime-source-export/v1",
   "canonical_source": "Switchyard",
-  "canonical_revision": "6fe1084dc1a0e8e39a5a6c2bc108b39ace682724",
+  "canonical_revision": "805e84d777eaab57c2108919ce43b09828e6e1ef",
   "export_procedure": "tools/export-runtime.mjs",
   "authored_material_license": "Apache-2.0",
   "third_party_notices_retained": true,
@@ -88,8 +88,8 @@
     },
     "src/switchyard/appserver.py": {
       "canonical_path": "src/switchyard/appserver.py",
-      "bytes": 39093,
-      "sha256": "032a442915d94a27139abe00647b7be9ea4fc23dda97c9c7abe9fa3aa5887bb2"
+      "bytes": 40225,
+      "sha256": "dd4babc1517d8dbf20ecd789377723fe939d42a0633684f373128305d84cb4d8"
     },
     "src/switchyard/config.py": {
       "canonical_path": "src/switchyard/config.py",
@@ -118,8 +118,8 @@
     },
     "src/switchyard/provider_runner.py": {
       "canonical_path": "src/switchyard/provider_runner.py",
-      "bytes": 56459,
-      "sha256": "2db3b96da22e38a90abef723f5fc3e4902748bbf5672c4c901c244f0110dab53"
+      "bytes": 56558,
+      "sha256": "b5aeb77b95829779ad7d2b524ab1bf73c2dc86d48ccc88dc270eaa746b8ef7a6"
     },
     "src/switchyard/review_verifier.py": {
       "canonical_path": "src/switchyard/review_verifier.py",
@@ -133,8 +133,8 @@
     },
     "src/switchyard/schemas/nightshift.worker-start-request.v3.schema.json": {
       "canonical_path": "src/switchyard/schemas/nightshift.worker-start-request.v3.schema.json",
-      "bytes": 7477,
-      "sha256": "ae05d77eb3d79926c00c37146ae3dfc257d2358ac027534dde7bc6954d64a9d6"
+      "bytes": 7551,
+      "sha256": "be982915ce610d71ed21549d98285951e17dea0bc17273272df929c422fb281b"
     },
     "src/switchyard/schemas/switchyard.codex-provider-admission.beta-final.v1.schema.json": {
       "canonical_path": "src/switchyard/schemas/switchyard.codex-provider-admission.beta-final.v1.schema.json",
@@ -151,6 +151,11 @@
       "bytes": 23680,
       "sha256": "2bcf795c753a08d3c7e2ef8b521b44b155054fccbd50452662230d59ddd3f293"
     },
+    "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v2.schema.json": {
+      "canonical_path": "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v2.schema.json",
+      "bytes": 23701,
+      "sha256": "c851fb5dd157ebb70896da06db50a07b968b3c0d357b2defc73ca267b9d82f93"
+    },
     "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn.v1.schema.json": {
       "canonical_path": "src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn.v1.schema.json",
       "bytes": 22612,
@@ -163,13 +168,13 @@
     },
     "tests/fixtures/bounded_turn_echo_vector.py": {
       "canonical_path": "tests/fixtures/bounded_turn_echo_vector.py",
-      "bytes": 4440,
-      "sha256": "918056f5df6e27f92a9fd8faf78c7674a27745c519f6fd46a73af93a2c7158ab"
+      "bytes": 4450,
+      "sha256": "64b239096ca7122add882243358eed49a83651bef92abe5fc9bb58106e90df90"
     },
     "tests/fixtures/bounded-turn-echo-vector.json": {
       "canonical_path": "tests/fixtures/bounded-turn-echo-vector.json",
       "bytes": 345,
-      "sha256": "5543d5cbfc1ce0b9e8f68259946439795188d239f2b42d30600a2292de6400eb"
+      "sha256": "bae7c531423cb67627ddaa536a7a307b21b20cdb6ebd1ecd22c5848f0cbfadfd"
     },
     "tests/fixtures/bounded-turn-synthetic.json": {
       "canonical_path": "tests/fixtures/bounded-turn-synthetic.json",
@@ -183,8 +188,8 @@
     },
     "tests/test_bounded_turn_echo.py": {
       "canonical_path": "tests/test_bounded_turn_echo.py",
-      "bytes": 9856,
-      "sha256": "d7361098a14849ffa3e88b6d521e2ba5712e9917a000d8cc290a3f6b2fa32db4"
+      "bytes": 13215,
+      "sha256": "3fbafb48ec8f64d377a8822da7b911085e91eacba70c417272055a3231bc07bc"
     },
     "tests/test_direct_api.py": {
       "canonical_path": "tests/test_direct_api.py",
@@ -203,18 +208,18 @@
     },
     "tests/test_runtime_packaging.py": {
       "canonical_path": "tests/test_runtime_packaging.py",
-      "bytes": 3676,
-      "sha256": "d53c77abf4d51753f5e6460356ffd1ccb52d758b33447c0fbf9c17d0c529c100"
+      "bytes": 3752,
+      "sha256": "c42c60ee5c7b5b264ac4d5793a63f19a42066f950188d20e8ab15787725b493c"
     },
     "tests/test_size_controls.py": {
       "canonical_path": "tests/test_size_controls.py",
       "bytes": 14647,
-      "sha256": "2c63809899dc8925752ef17375ffe75eabdabad10ac9956d4c4f251d7eed8a5f"
+      "sha256": "35f82108d16901008969e30cc64b75b2e92ac4dde713fc47e7be987cf4bd0a96"
     },
     "tools/export-runtime.mjs": {
       "canonical_path": "scripts/export-runtime.mjs",
-      "bytes": 4301,
-      "sha256": "3e2cd6bbc6c653a2fd3549ccd748410ac2cb2522718e786266590d56ee213a06"
+      "bytes": 4398,
+      "sha256": "db9142dc6d61e0b3ecd4cf864aefcc2f26065de446feb72b4fa304b938bd46bd"
     }
   }
 }

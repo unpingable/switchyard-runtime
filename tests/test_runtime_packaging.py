@@ -47,6 +47,7 @@ assert set(names) == {
     'switchyard.codex-provider-admission.beta-final.v1.schema.json',
     'switchyard.codex-provider-admission.bounded-turn.v1.schema.json',
     'switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json',
+    'switchyard.codex-provider-admission.bounded-turn-echo.v2.schema.json',
 }
 for name in names: assert json.loads(schemas.joinpath(name).read_text())['$schema']
 """

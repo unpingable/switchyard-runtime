@@ -5,5 +5,5 @@
   "turn_start_fill": "S",
   "agent_output_utf8_bytes": 32768,
   "agent_output_fill": "\\u0000",
-  "expected_snapshot_digest": "sha256:2c1cc7763a5cbb3d5d74f80b84da7613836c1c648967b76cd98123107477c5b2"
+  "expected_snapshot_digest": "sha256:a68fe24c3a595ca93e1f6bf5047b19948988690c36f59a046b671da96ac13412"
 }

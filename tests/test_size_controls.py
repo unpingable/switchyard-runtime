@@ -222,7 +222,7 @@ def test_native_preflight_has_no_state_surface_and_preserves_inputs(tmp_path):
     # The source-shaped echo schema is a closed additional member of the same
     # V3 request contract. This generic fixture contains no campaign material.
     from switchyard.provider_runner import V3_DOMAIN
-    echo_schema = ROOT / 'src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v1.schema.json'
+    echo_schema = ROOT / 'src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v2.schema.json'
     request['switchyard_schema_sha256'] = digest(echo_schema.read_bytes())
     request['request_digest'] = digest(V3_DOMAIN + _canonical({k: v for k, v in request.items() if k != 'request_digest'}))
     (tmp_path / 'request.json').write_bytes(_canonical(request))

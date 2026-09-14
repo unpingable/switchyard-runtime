@@ -1,4 +1,4 @@
-"""Generic cross-language BOUNDED_TURN_ECHO_V1 vector; never reads campaign records."""
+"""Generic cross-language Codex97 echo vector; never reads campaign records."""
 from __future__ import annotations
 
 import json
@@ -15,7 +15,7 @@ TURN = "echo-vector-turn"
 
 
 def _message(method: str, params: dict) -> ServerMessage:
-    value = {"method": method, "params": params}
+    value = {"method": method, "params": params, "emittedAtMs": 9}
     return ServerMessage(value, request_wire(value))
 
 
