@@ -1,7 +1,7 @@
 {
   "schema": "switchyard.runtime-source-export/v1",
   "canonical_source": "Switchyard",
-  "canonical_revision": "df9acbd044beaa4cb165dcb648341cc373aecd72",
+  "canonical_revision": "299609cda100ccf8701d5619ac78499f8bddd303",
   "export_procedure": "tools/export-runtime.mjs",
   "authored_material_license": "Apache-2.0",
   "third_party_notices_retained": true,
@@ -93,8 +93,8 @@
     },
     "src/switchyard/appserver.py": {
       "canonical_path": "src/switchyard/appserver.py",
-      "bytes": 40225,
-      "sha256": "dd4babc1517d8dbf20ecd789377723fe939d42a0633684f373128305d84cb4d8"
+      "bytes": 40666,
+      "sha256": "2a4ce8071c1f1d9af0f6651b2e1e17f2d358cfe42b658864e239f673a5b31918"
     },
     "src/switchyard/config.py": {
       "canonical_path": "src/switchyard/config.py",
@@ -181,6 +181,11 @@
       "bytes": 16495,
       "sha256": "f65cd7dc0082ff3aae5b5b527b93558d310303e723aef863f071e272c55d11d3"
     },
+    "tests/fake_raw_item_app_server.py": {
+      "canonical_path": "tests/fake_raw_item_app_server.py",
+      "bytes": 3461,
+      "sha256": "25bb4d4acc0d1bfb7b7577df13ca8d930ac83179e0ca4696e8041aa59619b096"
+    },
     "tests/fixtures/bounded_turn_echo_vector.py": {
       "canonical_path": "tests/fixtures/bounded_turn_echo_vector.py",
       "bytes": 4450,
@@ -238,8 +243,8 @@
     },
     "tests/test_provider_runner.py": {
       "canonical_path": "tests/test_provider_runner.py",
-      "bytes": 33317,
-      "sha256": "580367a1342257fdf109248334ce62a4127f95265ff3282b006107e9ed5745d5"
+      "bytes": 36557,
+      "sha256": "9a07a92b279b1db2f46d92a062636d557a5ecf3d12b9bdbf68a1d45a5c72ace0"
     },
     "tests/test_review_verifier_export.py": {
       "canonical_path": "tests/test_review_verifier_export.py",
@@ -258,8 +263,8 @@
     },
     "tools/export-runtime.mjs": {
       "canonical_path": "scripts/export-runtime.mjs",
-      "bytes": 4929,
-      "sha256": "e3fddcdceb88ea7d29703505a2cf87d2cde1b07cda231761dddfa8b2fccc8831"
+      "bytes": 4968,
+      "sha256": "7a3f21a53040985cd7c7a1138fea14425025dbffbd763ca4ded7620051bf1aa6"
     }
   }
 }

@@ -371,6 +371,12 @@ class AppServerClient:
         self._reader.start()
         self._stderr_reader.start()
 
+        capabilities: dict[str, Any] = {"experimentalApi": True}
+        if self.capture_contract == BOUNDED_TURN_ECHO_CAPTURE_CONTRACT:
+            # Codex97's exact per-connection filter suppresses redundant raw
+            # item echoes. Keep rawResponse/completed subscribed: its boundary
+            # record is distinct from rawResponseItem/completed telemetry.
+            capabilities["optOutNotificationMethods"] = ["rawResponseItem/completed"]
         try:
             self.request(
                 "initialize",
@@ -380,7 +386,7 @@ class AppServerClient:
                         "title": "Switchyard Codex Foreman",
                         "version": "0.1.0",
                     },
-                    "capabilities": {"experimentalApi": True},
+                    "capabilities": capabilities,
                 },
             )
             self.notify("initialized", {})

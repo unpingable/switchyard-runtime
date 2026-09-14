@@ -219,6 +219,65 @@ def test_runner_uses_verified_provenance_before_component_dispatch(tmp_path):
     assert result["state"] == "PROVIDER_COMPLETED"
 
 
+@pytest.mark.parametrize('mode', ['completed', 'missing-opt-out', 'unselected-large-frame'])
+def test_actual_client_retains_completion_after_exact_raw_item_opt_out(tmp_path, monkeypatch, mode):
+    """Real client pipes and mapper; only a local source-shaped fixture process."""
+    from switchyard.appserver import AppServerClient
+    import test_nightshift_adapter
+    original_packet = test_nightshift_adapter.packet_obj
+    def large_packet():
+        packet = original_packet()
+        next(item for item in packet['work_items'] if item['id'] == 'switchyard-transport')[
+            'acceptance_tests'].append('closed review material ' + 'x' * 18000)
+        return packet
+    monkeypatch.setattr(test_nightshift_adapter, 'packet_obj', large_packet)
+    request, brief, backend = inputs(tmp_path)
+    request['switchyard_schema_sha256'] = digest((Path(__file__).parents[1] /
+        'src/switchyard/schemas/switchyard.codex-provider-admission.bounded-turn-echo.v2.schema.json').read_bytes())
+    request['request_digest'] = digest(V3_DOMAIN + _canonical({k: v for k, v in request.items() if k != 'request_digest'}))
+    instances = []
+    class SourceShapedClient(AppServerClient):
+        def __init__(self, command, **kwargs):
+            del command
+            environment = dict(kwargs.pop('environment'))
+            environment['SWITCHYARD_FAKE_BOUNDED_PROVIDER'] = mode
+            super().__init__([sys.executable, str(Path(__file__).with_name('fake_raw_item_app_server.py'))],
+                environment=environment, **kwargs)
+            self.initialize_params = None
+            instances.append(self)
+        def request(self, method, params, **kwargs):
+            if method == 'initialize':
+                self.initialize_params = copy.deepcopy(params)
+                if mode == 'missing-opt-out':
+                    params = copy.deepcopy(params)
+                    params['capabilities'].pop('optOutNotificationMethods')
+            return super().request(method, params, **kwargs)
+    store = RunStore(tmp_path / 'raw-item-fixture.sqlite')
+    try:
+        observed = run(request, brief, backend, store, client_factory=SourceShapedClient)
+    finally:
+        store.close()
+    assert len(instances) == 1
+    client = instances[0]
+    assert client.initialize_params['capabilities'] == {
+        'experimentalApi': True, 'optOutNotificationMethods': ['rawResponseItem/completed']}
+    snapshot = observed['provider_admission']
+    methods = [record['method'] for record in snapshot['records']]
+    if mode == 'completed':
+        assert observed['state'] == 'PROVIDER_COMPLETED'
+        assert observed['worker_output'] == 'bounded finding'
+        assert snapshot['acquisition_cut']['clean'] is True
+        assert 'rawResponse/completed' in methods
+        assert 'rawResponseItem/completed' not in methods
+        assert any(record['method'] == 'item/completed' and record['raw']['byte_length'] > 16384
+                   for record in snapshot['records'])
+    else:
+        assert observed['state'] == 'OUTCOME_UNKNOWN'
+        assert snapshot['mechanism_state'] == 'ADMISSION_INDETERMINATE'
+        assert snapshot['acquisition_cut']['loss_generation'] > 0
+        assert client.stdout_refused_frames == 1
+
+
 def test_complete_and_duplicate_never_redispatch(tmp_path):
     request,brief,backend=inputs(tmp_path)
     Client.calls=[]; Client.request_params=[]; Client.mode='completed'

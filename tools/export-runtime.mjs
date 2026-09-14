@@ -36,6 +36,7 @@ const plain=['src/switchyard/__init__.py','src/switchyard/direct_api.py',
   // builders; all remain deterministic and make no provider contact.
   'tests/packet_fixture.py','tests/test_nightshift_adapter.py',
   'tests/test_provider_runner.py','tests/test_provider_runner_raw_response_completion.py',
+  'tests/fake_raw_item_app_server.py',
   'tests/fixtures/nightshift.orientation-packet.positive.v1.json',
   'qualification/provider_mapper_fixtures.py',
   'docs/BOUNDED_PROVIDER_CUSTODY_V1.md',
