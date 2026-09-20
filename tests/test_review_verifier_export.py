@@ -62,3 +62,27 @@ def test_load_config_refuses_an_unrecognized_member(tmp_path: Path) -> None:
     path.write_bytes(verifier.canonical(value))
     with pytest.raises(verifier.VerificationError, match="fields do not match"):
         verifier.load_config(path)
+
+
+def test_review_result_contract_refuses_the_same_invalid_findings_shapes() -> None:
+    binding_id = digest("c")
+    valid = {
+        "schema": verifier.RESULT_SCHEMA,
+        "binding_id": binding_id,
+        "verdict": "accepted",
+        "findings": [{"code": "FIXTURE", "summary": "Closed local fixture."}],
+    }
+    assert verifier.validate_review_result(verifier.canonical(valid), binding_id, "accepted") == valid
+    invalid_findings = (
+        "not an array",
+        [{"code": "F", "summary": "x"}] * 65,
+        [{"code": "F", "summary": "x", "extra": True}],
+        [{"code": "F"}],
+        [{"code": "contains a space", "summary": "x"}],
+        [{"code": "F", "summary": ""}],
+        [{"code": "F", "summary": "x" * 4097}],
+    )
+    for findings in invalid_findings:
+        result = dict(valid, findings=findings)
+        with pytest.raises(verifier.VerificationError):
+            verifier.validate_review_result(verifier.canonical(result), binding_id, "accepted")

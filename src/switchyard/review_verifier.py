@@ -328,6 +328,20 @@ def replayed_worker_output(snapshot: dict[str, Any], maximum: int) -> str | None
     return output
 
 
+def validate_review_result(raw: bytes, binding_id: str, expected_verdict: Any) -> dict[str, Any]:
+    """Parse the closed result shape before any custody-store lookup."""
+    result = closed(parse(raw, "review result"), RESULT_FIELDS, "review result")
+    if result["schema"] != RESULT_SCHEMA or result["binding_id"] != binding_id or result["verdict"] != expected_verdict:
+        raise VerificationError("review result binding mismatch")
+    if result["verdict"] not in {"accepted", "rejected"} or not isinstance(result["findings"], list) or len(result["findings"]) > 64:
+        raise VerificationError("invalid review result")
+    for finding in result["findings"]:
+        closed(finding, FINDING_FIELDS, "finding"); token(finding["code"], "finding code")
+        if not isinstance(finding["summary"], str) or not 1 <= len(finding["summary"].encode()) <= 4096:
+            raise VerificationError("invalid finding summary")
+    return result
+
+
 def verify(config: dict[str, Any], config_digest: str, request: dict[str, Any]) -> dict[str, Any]:
     closed(request, {"schema", "requirement", "review", "artifacts"}, "verification request")
     if request["schema"] != REQUEST_SCHEMA: raise VerificationError("request schema mismatch")
@@ -340,14 +354,7 @@ def verify(config: dict[str, Any], config_digest: str, request: dict[str, Any]) 
     custody_raw = decode_artifact(artifacts.get("custody_receipt_bytes_base64"), config["limits"]["max_custody_bytes"], "custody")
     if plain_digest(result_raw) != review.get("result_digest") or plain_digest(custody_raw) != review.get("custody_receipt_digest"):
         raise VerificationError("artifact digest mismatch")
-    result = closed(parse(result_raw, "review result"), RESULT_FIELDS, "review result")
-    if result["schema"] != RESULT_SCHEMA or result["binding_id"] != binding_id or result["verdict"] != review.get("verdict"):
-        raise VerificationError("review result binding mismatch")
-    if result["verdict"] not in {"accepted", "rejected"} or not isinstance(result["findings"], list) or len(result["findings"]) > 64:
-        raise VerificationError("invalid review result")
-    for finding in result["findings"]:
-        closed(finding, FINDING_FIELDS, "finding"); token(finding["code"], "finding code")
-        if not isinstance(finding["summary"], str) or not 1 <= len(finding["summary"].encode()) <= 4096: raise VerificationError("invalid finding summary")
+    result = validate_review_result(result_raw, binding_id, review.get("verdict"))
     req, record, brief, backend = switchyard_row(config, dispatch_id)
     manifest, _binding_raw = extract_manifest(brief, config)
     if manifest["binding_id"] != binding_id: raise VerificationError("reviewer did not receive exact binding")
