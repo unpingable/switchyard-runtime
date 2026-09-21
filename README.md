@@ -11,6 +11,15 @@ inspectable result. It does not validate or accept plans, authorize downstream
 work, or execute a proposed plan. Maude keeps those proposal-review decisions.
 For a small script without durable custody needs, this may be more than you need.
 
+The immutable [Constellation 0.1.0-alpha.6](https://unpingable.com/constellation/releases/0.1.0-alpha.6/guide.html)
+profile uses this exported runtime's retained independent-review verification
+contract alongside an enrolled bounded review route. That profile completed one
+reviewed, explicitly accepted, authorized-once local effect; provider or review
+completion was still not plan acceptance or effect permission. The public
+newcomer procedure verifies released evidence without contacting a provider or
+repeating the effect. It does not qualify every provider route, runtime host,
+or caller integration.
+
 ## Install and check without provider access
 
 Requires Python 3.11 or later. Use a separate environment: this distribution
