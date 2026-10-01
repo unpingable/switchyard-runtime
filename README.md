@@ -135,3 +135,7 @@ never maintain a patched public fork.
 
 The user's authored exported material is Apache-2.0. The vendored RFC8785
 implementation retains its own license and notice; see [NOTICE](NOTICE).
+
+## Beta work planning
+
+See the [current beta work plan](docs/BETA-WORK.md) for owned requirements, exclusions, dependencies and GitHub issues. Plan publication does not start implementation or transfer qualification.
