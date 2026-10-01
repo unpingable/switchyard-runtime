@@ -43,6 +43,7 @@ assert set(names) == {
     'nightshift.orientation-packet.v1.schema.json',
     'nightshift.provider-dispatch-occurrence.v1.schema.json',
     'nightshift.worker-start-request.v3.schema.json',
+    'switchyard.codex-worker-outcome.v1.schema.json',
     'switchyard.codex-provider-admission.v1.schema.json',
     'switchyard.codex-provider-admission.beta.v1.schema.json',
     'switchyard.codex-provider-admission.beta-final.v1.schema.json',

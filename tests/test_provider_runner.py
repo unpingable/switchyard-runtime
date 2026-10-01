@@ -2,6 +2,7 @@ import copy
 import hashlib
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -11,7 +12,7 @@ import pytest
 from switchyard.appserver import AcquisitionCut, AcquisitionEnvelope, ServerMessage
 from switchyard.nightshift_adapter import _canonical, _digest, START_DOMAIN
 from switchyard.provider_admission import FINAL_CODEX_SOURCE_HEAD as CODEX_SOURCE_HEAD
-from switchyard.provider_runner import BOUNDED_BASE_INSTRUCTIONS, BOUNDED_DEVELOPER_INSTRUCTIONS, PROVENANCE_SCHEMA, RUNNER_SOURCE_CLOSURE, RunStore, bounded_thread_start, digest, inspect, load_at, preflight_request, reconcile, run as actual_run, validate_request, verify_backend, verify_runner_provenance, V3_DOMAIN, DISPATCH_DOMAIN
+from switchyard.provider_runner import BOUNDED_BASE_INSTRUCTIONS, BOUNDED_DEVELOPER_INSTRUCTIONS, PROVENANCE_SCHEMA, RUNNER_SOURCE_CLOSURE, RunStore, bounded_thread_start, digest, inspect, load_at, preflight_request, reconcile, run as actual_run, seal_terminal_receipt, validate_request, verify_backend, verify_runner_provenance, V3_DOMAIN, DISPATCH_DOMAIN
 from test_nightshift_adapter import build_request_brief
 
 
@@ -167,6 +168,165 @@ class Client:
         events=self.events; self.events=[]; return events
     def quiesce_acquisition(self, timeout=5):
         return AcquisitionCut(True,0,'EXITED',self.ordinal,self.kwargs.get('adapter_process_occurrence_id'),self.kwargs.get('app_server_session_identity'))
+
+
+def worker_outcome():
+    return {
+        "schema": "switchyard.codex-worker-outcome/v1",
+        "state": "REVIEW_COMPLETED",
+        "result_classification": "BOUNDED_SOURCE_REVIEW",
+        "repositories": [],
+        "tests": ["No tests requested; retained read-only review."],
+        "evidence": ["Exact canonical worker outcome retained by Switchyard."],
+        "live_or_production_mutations": [],
+        "remaining_trigger": "Nightshift terminal-receipt admission remains separate.",
+        "next_lawful_action": "Submit this candidate receipt through the enrolled Nightshift boundary.",
+        "human_questions": [],
+        "teardown": {
+            "live_runtime": "Provider process reached a closed acquisition cut.",
+            "secrets": "No secrets were emitted in the worker outcome.",
+            "teardown": "No additional teardown declared by the read-only worker.",
+        },
+        "extensions": {},
+    }
+
+
+class OutcomeClient(Client):
+    mode = "completed"
+
+    def event(self, method, params):
+        if method == "item/completed" and params.get("item", {}).get("type") == "agentMessage":
+            params = copy.deepcopy(params)
+            params["item"]["text"] = _canonical(worker_outcome()).decode()
+        super().event(method, params)
+
+
+def completed_outcome_store(tmp_path):
+    request, brief, backend = inputs(tmp_path)
+    path = tmp_path / "terminal.sqlite"
+    store = RunStore(path)
+    try:
+        result = run(request, brief, backend, store, client_factory=OutcomeClient)
+    finally:
+        store.close()
+    assert result["state"] == "PROVIDER_COMPLETED"
+    return path, request, backend, result
+
+
+def replace_retained(path, dispatch, column, value):
+    db = sqlite3.connect(path)
+    try:
+        db.execute(f"UPDATE provider_runs SET {column}=? WHERE dispatch=?",
+                   (_canonical(value), dispatch))
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_seal_terminal_receipt_is_repeatable_and_does_not_write_store(tmp_path):
+    path, request, backend, record = completed_outcome_store(tmp_path)
+    before = path.read_bytes(), path.stat().st_mtime_ns
+    first = seal_terminal_receipt(path, request["dispatch_occurrence_id"])
+    second = seal_terminal_receipt(path, request["dispatch_occurrence_id"])
+    after = path.read_bytes(), path.stat().st_mtime_ns
+    assert _canonical(first) == _canonical(second)
+    assert after == before
+    assert first == {
+        "schema": "nightshift.worker-terminal-receipt/v1",
+        "receipt_digest": first["receipt_digest"],
+        "packet_digest": request["packet_digest"],
+        "run_id": request["run_id"],
+        "work_item_id": request["work_item_id"],
+        "attempt_id": request["work_attempt_id"],
+        "adapter_id": record["dispatch_record"]["adapter_id"],
+        "adapter_version": record["dispatch_record"]["adapter_version"],
+        "provider_identity": backend["provider"],
+        "model_identity": backend["model"],
+        "session_identity": record["dispatch_record"]["app_server_session_identity"],
+        "thread_identity": record["thread_id"],
+        "turn_identity": record["turn_id"],
+        "queue_identity": None,
+        "started_at": first["started_at"],
+        "ended_at": first["ended_at"],
+        **{key: value for key, value in worker_outcome().items() if key != "schema"},
+    }
+
+
+def test_seal_terminal_receipt_allows_completion_observed_in_final_ordered_drain(tmp_path):
+    path, request, _backend, record = completed_outcome_store(tmp_path)
+    record["pre_cleanup_mechanism_state"] = "RUNNING"
+    replace_retained(path, record["dispatch_occurrence_id"], "record", record)
+    receipt = seal_terminal_receipt(path, request["dispatch_occurrence_id"])
+    assert receipt["state"] == worker_outcome()["state"]
+
+
+@pytest.mark.parametrize("mutation", [
+    "not-completed", "identity-extra", "noncanonical-outcome", "open-outcome",
+    "outcome-wrapper-field", "whitespace-outcome", "oversized-output",
+    "process-binding", "session-binding", "thread-binding", "turn-binding",
+    "provider-binding", "model-binding", "timestamp-bool", "timestamp-reversed",
+    "timestamp-out-of-range",
+])
+def test_seal_terminal_receipt_refuses_unqualified_retained_state(tmp_path, mutation):
+    path, request, _backend, record = completed_outcome_store(tmp_path)
+    if mutation == "not-completed":
+        record["state"] = "OUTCOME_UNKNOWN"
+    elif mutation == "identity-extra":
+        record["requested_execution"]["extra"] = "unbound"
+    elif mutation == "noncanonical-outcome":
+        record["worker_output"] = json.dumps(worker_outcome())
+    elif mutation == "open-outcome":
+        value = worker_outcome(); value["extra"] = True
+        record["worker_output"] = _canonical(value).decode()
+    elif mutation == "outcome-wrapper-field":
+        value = worker_outcome(); value["started_at"] = "2026-09-27T12:00:00Z"
+        record["worker_output"] = _canonical(value).decode()
+    elif mutation == "whitespace-outcome":
+        value = worker_outcome(); value["state"] = "   "
+        record["worker_output"] = _canonical(value).decode()
+    elif mutation == "oversized-output":
+        value = worker_outcome(); value["extensions"] = {"padding": "x" * 70000}
+        record["worker_output"] = _canonical(value).decode()
+    elif mutation == "process-binding":
+        record["provider_admission"]["binding"]["adapter_process_occurrence_id"] = "other-process"
+    elif mutation == "session-binding":
+        record["provider_admission"]["binding"]["app_server_session_identity"] = "sha256:" + "f" * 64
+    elif mutation == "thread-binding":
+        record["provider_admission"]["binding"]["thread_id"] = "other-thread"
+    elif mutation == "turn-binding":
+        record["provider_admission"]["binding"]["turn_id"] = "other-turn"
+    elif mutation == "provider-binding":
+        record["provider_admission"]["binding"]["provider"] = "other-provider"
+    elif mutation == "model-binding":
+        record["provider_admission"]["binding"]["model"] = "other-model"
+    elif mutation == "timestamp-bool":
+        record["started_at_unix_ms"] = True
+    elif mutation == "timestamp-reversed":
+        record["started_at_unix_ms"] = record["ended_at_unix_ms"] + 1
+    else:
+        record["ended_at_unix_ms"] = 9_007_199_254_740_991
+    replace_retained(path, record["dispatch_occurrence_id"], "record", record)
+    with pytest.raises(Exception):
+        seal_terminal_receipt(path, record["dispatch_occurrence_id"])
+
+
+def test_seal_terminal_receipt_requires_absolute_nofollow_state_path(tmp_path):
+    path, request, _backend, _record = completed_outcome_store(tmp_path)
+    link = tmp_path / "terminal-link.sqlite"
+    link.symlink_to(path)
+    with pytest.raises(Exception):
+        seal_terminal_receipt(link, request["dispatch_occurrence_id"])
+    with pytest.raises(Exception, match="absolute"):
+        seal_terminal_receipt(Path("relative.sqlite"), request["dispatch_occurrence_id"])
+
+
+def test_seal_terminal_receipt_cli_uses_global_state_shape(tmp_path, monkeypatch, capsys):
+    from switchyard import provider_runner
+    path, request, _backend, _record = completed_outcome_store(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["switchyard-provider-runner", "--state", str(path),
+        "seal-terminal-receipt", "--dispatch", request["dispatch_occurrence_id"]])
+    provider_runner.main()
+    assert json.loads(capsys.readouterr().out)["schema"] == "nightshift.worker-terminal-receipt/v1"
 
 
 def test_runner_provenance_binds_current_source_closure_and_refuses_mismatch(tmp_path):

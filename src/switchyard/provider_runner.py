@@ -25,7 +25,8 @@ from .appserver import (AppServerClient, request_wire, client_request_byte_bound
     MAXIMUM_USER_INPUT_ECHO_BYTES, normalized_bounded_turn_input)
 from .nightshift_adapter import (
     AdapterProtocolError, MAXIMUM_BRIEF_BYTES, _canonical, _read_bounded_regular,
-    _unique_object, validate_start,
+    _unique_object, _validate_terminal_predecessor,
+    RECEIPT_DOMAIN, RECEIPT_SCHEMA, validate_start, validate_worker_outcome,
 )
 from .provider_admission import ProviderAdmissionMapper, replay_snapshot, seal_binding
 from . import provider_admission
@@ -38,6 +39,11 @@ DISPATCH_DOMAIN = b"nightshift.provider-dispatch-occurrence.digest/v1\0"
 PRELAUNCH_DOMAIN = b"switchyard.provider-prelaunch-closure.digest/v1\0"
 PRELAUNCH_SCHEMA = "switchyard.provider-prelaunch-closure/v1"
 PROVENANCE_SCHEMA = "switchyard.runtime-source-export/v1"
+OUTCOME_RECEIPT_FIELDS = (
+    "state", "result_classification", "repositories", "tests", "evidence",
+    "live_or_production_mutations", "remaining_trigger", "next_lawful_action",
+    "human_questions", "teardown", "extensions",
+)
 RUNNER_SOURCE_CLOSURE = (
     "src/switchyard/__init__.py",
     "src/switchyard/appserver.py",
@@ -51,6 +57,7 @@ RUNNER_SOURCE_CLOSURE = (
     "src/switchyard/_vendor/rfc8785/_impl.py",
     "src/switchyard/schemas/nightshift.provider-dispatch-occurrence.v1.schema.json",
     "src/switchyard/schemas/nightshift.worker-start-request.v3.schema.json",
+    "src/switchyard/schemas/switchyard.codex-worker-outcome.v1.schema.json",
     "src/switchyard/schemas/switchyard.codex-provider-admission.v1.schema.json",
     "src/switchyard/schemas/switchyard.codex-provider-admission.beta.v1.schema.json",
     "src/switchyard/schemas/switchyard.codex-provider-admission.beta-final.v1.schema.json",
@@ -684,6 +691,164 @@ def inspect(path: Path | str, dispatch: str, *, root_fd: int | None = None) -> d
     return record
 
 
+def _retained_object(raw: bytes | str, label: str) -> dict:
+    """Parse one exact canonical object retained in provider custody."""
+    encoded = raw.encode() if isinstance(raw, str) else bytes(raw)
+    try:
+        value = json.loads(encoded, object_pairs_hook=_unique_object)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise AdapterProtocolError(f"retained {label} is not JSON") from error
+    if not isinstance(value, dict) or _canonical(value) != encoded:
+        raise AdapterProtocolError(f"retained {label} is not an exact canonical object")
+    return value
+
+
+def _unix_ms_time(value: object, label: str) -> str:
+    if type(value) is not int or value < 0:
+        raise AdapterProtocolError(f"retained {label} is not a Unix millisecond timestamp")
+    seconds, milliseconds = divmod(value, 1000)
+    try:
+        basis = datetime.fromtimestamp(seconds, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    except (OverflowError, OSError, ValueError) as error:
+        raise AdapterProtocolError(f"retained {label} is outside the timestamp range") from error
+    return basis + (f".{milliseconds:03d}" if milliseconds else "") + "Z"
+
+
+def seal_terminal_receipt(path: Path | str, dispatch: str, *, root_fd: int | None = None) -> dict:
+    """Project completed custody into a candidate receipt without admitting it."""
+    owned_root_fd = None
+    state: Path | str = path
+    if root_fd is None:
+        candidate = Path(path)
+        if not candidate.is_absolute():
+            raise AdapterProtocolError("terminal receipt sealing requires an absolute state path")
+        owned_root_fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        root_fd = owned_root_fd
+        state = candidate.relative_to("/").as_posix()
+    try:
+        row = _read_store(
+            state,
+            "SELECT request,brief,backend,record FROM provider_runs WHERE dispatch=?",
+            (dispatch,),
+            root_fd=root_fd,
+        )
+    finally:
+        if owned_root_fd is not None:
+            os.close(owned_root_fd)
+    if row is None:
+        raise AdapterProtocolError("unknown dispatch")
+    request = _retained_object(row[0], "request")
+    brief = bytes(row[1])
+    backend = _retained_object(row[2], "backend")
+    record = _retained_object(row[3], "provider record")
+    validate_request(request, brief)
+    validate_backend_spec(backend, request)
+    retained_dispatch = record.get("dispatch_record")
+    validate_dispatch(retained_dispatch, request, backend)
+    if dispatch != request["dispatch_occurrence_id"] or record.get("dispatch_occurrence_id") != dispatch:
+        raise AdapterProtocolError("retained dispatch lookup identity differs")
+    requested_execution = {
+        "provider_id": request["provider_id"], "model_id": request["model_id"],
+        "request_digest": request["request_digest"],
+        "work_attempt_id": request["work_attempt_id"],
+        "dispatch_occurrence_id": request["dispatch_occurrence_id"],
+    }
+    observed_execution = {
+        "state": "OBSERVED_PROVIDER_BOUNDARY", "provider_id": backend["provider"],
+        "model_id": backend["model"], "source": "ORDERED_PROVIDER_ADMISSION_EVIDENCE",
+    }
+    if (record.get("schema") != "switchyard.provider-run/v1"
+        or record.get("work_attempt_id") != request["work_attempt_id"]
+        or record.get("request_digest") != request["request_digest"]
+        or record.get("backend") != backend
+        or record.get("requested_execution") != requested_execution
+        or record.get("observed_execution") != observed_execution
+        or record.get("process_occurrence") != retained_dispatch["adapter_process_occurrence_id"]
+        or record.get("authority_effect") != "LOCAL_AGENT_COMPUTE_SCHEDULING_ONLY"
+        or record.get("dispatch_record") != retained_dispatch):
+        raise AdapterProtocolError("retained provider record binding differs")
+
+    snapshot = record.get("provider_admission")
+    replayed = replay_snapshot(snapshot, capture_contract=capture_contract_for_request(request))
+    if replayed.snapshot() != snapshot:
+        raise AdapterProtocolError("retained provider snapshot replay differs")
+    cut = snapshot.get("acquisition_cut")
+    if (record.get("state") != "PROVIDER_COMPLETED"
+        or record.get("turn_status") != "completed"
+        or snapshot.get("mechanism_state") != "PROVIDER_COMPLETED"
+        or not isinstance(cut, dict) or cut.get("clean") is not True
+        or cut.get("stream_quiesced") is not True or cut.get("loss_generation") != 0
+        or cut.get("process_disposition") not in {
+            "EXITED", "EXITED_AFTER_TERMINATE", "EXITED_AFTER_KILL",
+        }
+        or cut.get("adapter_process_occurrence_id") != record["process_occurrence"]
+        or cut.get("app_server_session_identity") != retained_dispatch["app_server_session_identity"]):
+        raise AdapterProtocolError("provider occurrence is not cleanly completed")
+    binding = snapshot.get("binding")
+    expected_binding = seal_binding({
+        "work_attempt_id": request["work_attempt_id"],
+        "dispatch_occurrence_id": request["dispatch_occurrence_id"],
+        "adapter_process_occurrence_id": retained_dispatch["adapter_process_occurrence_id"],
+        "app_server_session_identity": retained_dispatch["app_server_session_identity"],
+        "thread_id": record.get("thread_id"),
+        "turn_id": record.get("turn_id"),
+        "provider": backend["provider"],
+        "model": backend["model"],
+        "codex_source_head": backend["codex_source_head"],
+        "executable_kind": "CAMPAIGN_CODEX_BUILD",
+        "app_server_executable_identity": backend["executable"],
+        "app_server_executable_sha256": backend["executable_sha256"],
+        "internal_provider_request_retries": 0,
+    })
+    if binding != expected_binding:
+        raise AdapterProtocolError("provider snapshot binding differs from retained occurrence")
+    if (record.get("approval_response_sent") is not False
+        or record.get("semantic_retry") is not False
+        or record.get("acceptance_state") != "NOT_EVALUATED_BY_SWITCHYARD"):
+        raise AdapterProtocolError("provider occurrence is outside the unevaluated zero-retry boundary")
+
+    output = record.get("worker_output")
+    if not isinstance(output, str):
+        raise AdapterProtocolError("completed provider occurrence lacks retained worker output")
+    try:
+        output_raw = output.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise AdapterProtocolError("retained worker output is not UTF-8") from error
+    if len(output_raw) > request["maximum_output_bytes"]:
+        raise AdapterProtocolError("retained worker output exceeds admitted bound")
+    outcome = _retained_object(output_raw, "worker outcome")
+    validate_worker_outcome(outcome)
+
+    started = record.get("started_at_unix_ms")
+    ended = record.get("ended_at_unix_ms")
+    if type(started) is not int or type(ended) is not int or started > ended:
+        raise AdapterProtocolError("provider occurrence timestamps differ")
+    receipt = {
+        "schema": RECEIPT_SCHEMA,
+        "receipt_digest": "sha256:" + "0" * 64,
+        "packet_digest": request["packet_digest"],
+        "run_id": request["run_id"],
+        "work_item_id": request["work_item_id"],
+        "attempt_id": request["work_attempt_id"],
+        "adapter_id": retained_dispatch["adapter_id"],
+        "adapter_version": retained_dispatch["adapter_version"],
+        "provider_identity": backend["provider"],
+        "model_identity": backend["model"],
+        "session_identity": retained_dispatch["app_server_session_identity"],
+        "thread_identity": record["thread_id"],
+        "turn_identity": record["turn_id"],
+        "queue_identity": None,
+        "started_at": _unix_ms_time(started, "start time"),
+        "ended_at": _unix_ms_time(ended, "end time"),
+        **{key: outcome[key] for key in OUTCOME_RECEIPT_FIELDS},
+    }
+    receipt["receipt_digest"] = digest(RECEIPT_DOMAIN + _canonical({
+        key: value for key, value in receipt.items() if key != "receipt_digest"
+    }))
+    _validate_terminal_predecessor(receipt)
+    return receipt
+
+
 def inspect_prelaunch(path: Path | str, dispatch: str, *, root_fd: int | None = None) -> dict:
     record = inspect(path, dispatch, root_fd=root_fd)
     if record.get("state") != "PRELAUNCH_CLOSED":
@@ -914,6 +1079,9 @@ def main() -> None:
     for name in ("inspect", "inspect-prelaunch", "reconcile"):
         read = sub.add_parser(name)
         read.add_argument("--dispatch", required=True)
+    seal = sub.add_parser("seal-terminal-receipt",
+        help="seal a candidate receipt from exact retained completed custody; never submits it")
+    seal.add_argument("--dispatch", required=True)
     args = parser.parse_args()
     if args.command == "preflight-request":
         if args.root_fd is not None or args.state is not None:
@@ -921,6 +1089,13 @@ def main() -> None:
         request, _ = load(args.request); backend, _ = load(args.backend)
         brief = _read_bounded_regular(args.brief, MAXIMUM_BRIEF_BYTES, "worker brief")
         print(_canonical(preflight_request(request, brief, backend)).decode())
+        return
+    if args.command == "seal-terminal-receipt":
+        if args.state is None:
+            parser.error("--state is required for durable operations")
+        state: Path | str = args.state if args.root_fd is not None else Path(args.state)
+        result = seal_terminal_receipt(state, args.dispatch, root_fd=args.root_fd)
+        print(_canonical(result).decode())
         return
     if args.state is None:
         parser.error("--state is required for durable operations")

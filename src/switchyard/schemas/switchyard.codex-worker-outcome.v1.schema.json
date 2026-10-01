@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:switchyard:codex-worker-outcome:v1",
+  "title": "Switchyard Codex worker outcome V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "state", "result_classification", "repositories", "tests",
+    "evidence", "live_or_production_mutations", "remaining_trigger",
+    "next_lawful_action", "human_questions", "teardown", "extensions"
+  ],
+  "properties": {
+    "schema": {"const": "switchyard.codex-worker-outcome/v1"},
+    "state": {"$ref": "#/$defs/text"},
+    "result_classification": {"$ref": "#/$defs/text"},
+    "repositories": {"type": "array", "items": {"$ref": "#/$defs/repository"}},
+    "tests": {"$ref": "#/$defs/strings"},
+    "evidence": {"$ref": "#/$defs/strings"},
+    "live_or_production_mutations": {"const": []},
+    "remaining_trigger": {"$ref": "#/$defs/text"},
+    "next_lawful_action": {"$ref": "#/$defs/text"},
+    "human_questions": {"type": "array", "items": {"$ref": "#/$defs/question"}},
+    "teardown": {"$ref": "#/$defs/teardown"},
+    "extensions": {"$ref": "#/$defs/extensions"}
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1, "maxLength": 65536},
+    "strings": {"type": "array", "items": {"type": "string", "maxLength": 65536}},
+    "id": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[A-Za-z0-9._:/-]+$"},
+    "extensions": {
+      "type": "object", "maxProperties": 64,
+      "propertyNames": {"$ref": "#/$defs/id"},
+      "additionalProperties": {"$ref": "#/$defs/extension_value"}
+    },
+    "extension_value": {
+      "oneOf": [
+        {"type": "null"}, {"type": "boolean"}, {"type": "string"},
+        {"type": "number", "minimum": -9007199254740991, "maximum": 9007199254740991},
+        {"type": "array", "items": {"$ref": "#/$defs/extension_value"}},
+        {"$ref": "#/$defs/extensions"}
+      ]
+    },
+    "repository": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository", "branch", "head", "push_status"],
+      "properties": {
+        "repository": {"$ref": "#/$defs/text"},
+        "branch": {"$ref": "#/$defs/text"},
+        "head": {"$ref": "#/$defs/text"},
+        "push_status": {"$ref": "#/$defs/text"}
+      }
+    },
+    "question": {
+      "type": "object", "additionalProperties": false,
+      "required": ["question_id", "question", "exhausted_evidence", "safe_default", "consequences", "resume_point"],
+      "properties": {
+        "question_id": {"$ref": "#/$defs/id"},
+        "question": {"$ref": "#/$defs/text"},
+        "exhausted_evidence": {"$ref": "#/$defs/text"},
+        "safe_default": {"$ref": "#/$defs/text"},
+        "consequences": {"$ref": "#/$defs/text"},
+        "resume_point": {"$ref": "#/$defs/text"}
+      }
+    },
+    "teardown": {
+      "type": "object", "additionalProperties": false,
+      "required": ["live_runtime", "secrets", "teardown"],
+      "properties": {
+        "live_runtime": {"$ref": "#/$defs/text"},
+        "secrets": {"$ref": "#/$defs/text"},
+        "teardown": {"$ref": "#/$defs/text"}
+      }
+    }
+  }
+}

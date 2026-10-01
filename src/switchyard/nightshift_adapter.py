@@ -1232,8 +1232,10 @@ def _string_list(field: str, value: Any) -> list[str]:
     return value
 
 
-def receipt_from_outcome(outcome: dict[str, Any], attempt: Attempt) -> dict[str, Any]:
-    if outcome.get("schema") != OUTCOME_SCHEMA:
+def validate_worker_outcome(outcome: Any) -> dict[str, Any]:
+    """Validate the shared closed worker semantics without adding custody."""
+    if (not isinstance(outcome, dict) or frozenset(outcome) != OUTCOME_FIELDS
+        or outcome.get("schema") != OUTCOME_SCHEMA):
         raise AdapterProtocolError("foreign worker outcome schema")
     for field in ("state", "result_classification", "remaining_trigger", "next_lawful_action"):
         _bounded_text(field, outcome.get(field))
@@ -1275,6 +1277,11 @@ def receipt_from_outcome(outcome: dict[str, Any], attempt: Attempt) -> dict[str,
     if not isinstance(extensions, dict) or len(extensions) > 64:
         raise AdapterProtocolError("invalid worker outcome extensions")
     _validate_interoperable_extension(extensions)
+    return outcome
+
+
+def receipt_from_outcome(outcome: dict[str, Any], attempt: Attempt) -> dict[str, Any]:
+    validate_worker_outcome(outcome)
     receipt: dict[str, Any] = {
         "schema": RECEIPT_SCHEMA, "receipt_digest": "sha256:" + "0" * 64,
         "packet_digest": attempt.binding["packet_digest"],

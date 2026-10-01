@@ -11,15 +11,6 @@ inspectable result. It does not validate or accept plans, authorize downstream
 work, or execute a proposed plan. Maude keeps those proposal-review decisions.
 For a small script without durable custody needs, this may be more than you need.
 
-The immutable [Constellation 0.1.0-alpha.6](https://unpingable.com/constellation/releases/0.1.0-alpha.6/guide.html)
-profile uses this exported runtime's retained independent-review verification
-contract alongside an enrolled bounded review route. That profile completed one
-reviewed, explicitly accepted, authorized-once local effect; provider or review
-completion was still not plan acceptance or effect permission. The public
-newcomer procedure verifies released evidence without contacting a provider or
-repeating the effect. It does not qualify every provider route, runtime host,
-or caller integration.
-
 ## Install and check without provider access
 
 Requires Python 3.11 or later. Use a separate environment: this distribution
@@ -73,6 +64,24 @@ independent process proof. The retained closure prevents a later launch of that
 same dispatch, creates no provider result, and grants no retry. See the
 [pre-launch closure contract](docs/PROVIDER_PRELAUNCH_CLOSURE_V1.md). Using a
 recovery binary does not retarget a separately approved provider route.
+
+After a supported runner occurrence has retained a completed turn, an exact
+canonical `switchyard.codex-worker-outcome/v1`, and a clean closed acquisition
+cut, the read-only command
+`switchyard-provider-runner --state /absolute/provider.sqlite
+seal-terminal-receipt --dispatch DISPATCH_ID` can project that same retained
+occurrence into a candidate `nightshift.worker-terminal-receipt/v1`. The state
+path must be absolute; every path component and the SQLite file are opened
+without following symbolic links. Repeating the command over unchanged custody
+returns the same bytes and does not launch or reconcile provider work.
+
+The worker outcome supplies only the existing semantic result fields and is an
+assertion, not independent proof of its repository, test, evidence, teardown or
+credential statements. Receipt identities and occurrence-envelope timestamps
+come from retained runner custody. The command neither submits nor accepts the
+receipt: the enrolled Nightshift Foreman remains the separate acceptance gate.
+Failed, incomplete, indeterminate, unclean or later-only reconciliation evidence
+cannot be promoted through this projection.
 
 ## Trust and limits
 
